@@ -1,0 +1,56 @@
+{
+  "cryptocurrencies": [
+    { "name": "Bitcoin", "symbol": "BTC" },
+    { "name": "Ethereum", "symbol": "ETH" },
+    { "name": "Tether", "symbol": "USDT" },
+    { "name": "Binance Coin", "symbol": "BNB" },
+    { "name": "Solana", "symbol": "SOL" },
+    { "name": "XRP (Ripple)", "symbol": "XRP" },
+    { "name": "Cardano", "symbol": "ADA" },
+    { "name": "Dogecoin", "symbol": "DOGE" },
+    { "name": "Toncoin", "symbol": "TON" },
+    { "name": "Avalanche", "symbol": "AVAX" },
+    { "name": "Polkadot", "symbol": "DOT" },
+    { "name": "Chainlink", "symbol": "LINK" },
+    { "name": "Polygon", "symbol": "MATIC" },
+    { "name": "Shiba Inu", "symbol": "SHIB" },
+    { "name": "Litecoin", "symbol": "LTC" }
+  ],
+  "us_stocks": [
+    { "name": "Apple Inc.", "symbol": "AAPL" },
+    { "name": "Microsoft Corp.", "symbol": "MSFT" },
+    { "name": "Alphabet Inc. (Class A)", "symbol": "GOOGL" },
+    { "name": "Amazon.com Inc.", "symbol": "AMZN" },
+    { "name": "NVIDIA Corp.", "symbol": "NVDA" },
+    { "name": "Meta Platforms Inc.", "symbol": "META" },
+    { "name": "Tesla Inc.", "symbol": "TSLA" },
+    { "name": "Berkshire Hathaway Inc. (Class B)", "symbol": "BRK.B" },
+    { "name": "JPMorgan Chase & Co.", "symbol": "JPM" },
+    { "name": "Johnson & Johnson", "symbol": "JNJ" },
+    { "name": "Exxon Mobil Corp.", "symbol": "XOM" },
+    { "name": "Procter & Gamble Co.", "symbol": "PG" },
+    { "name": "UnitedHealth Group", "symbol": "UNH" },
+    { "name": "Visa Inc.", "symbol": "V" },
+    { "name": "Coca-Cola Co.", "symbol": "KO" }
+  ],
+  "forex_pairs": [
+    { "name": "Euro / U.S. Dollar", "symbol": "EUR/USD" },
+    { "name": "U.S. Dollar / Japanese Yen", "symbol": "USD/JPY" },
+    { "name": "British Pound / U.S. Dollar", "symbol": "GBP/USD" },
+    { "name": "U.S. Dollar / Swiss Franc", "symbol": "USD/CHF" },
+    { "name": "Australian Dollar / U.S. Dollar", "symbol": "AUD/USD" },
+    { "name": "U.S. Dollar / Canadian Dollar", "symbol": "USD/CAD" },
+    { "name": "New Zealand Dollar / U.S. Dollar", "symbol": "NZD/USD" },
+    { "name": "Euro / British Pound", "symbol": "EUR/GBP" },
+    { "name": "Euro / Japanese Yen", "symbol": "EUR/JPY" },
+    { "name": "Euro / Swiss Franc", "symbol": "EUR/CHF" },
+    { "name": "British Pound / Japanese Yen", "symbol": "GBP/JPY" },
+    { "name": "U.S. Dollar / Chinese Yuan (Offshore)", "symbol": "USD/CNH" },
+    { "name": "U.S. Dollar / Turkish Lira", "symbol": "USD/TRY" },
+    { "name": "U.S. Dollar / Singapore Dollar", "symbol": "USD/SGD" },
+    { "name": "U.S. Dollar / Hong Kong Dollar", "symbol": "USD/HKD" }
+  ],
+  "metal_futures": [
+    { "name": "Gold Futures", "symbol": "XAU/USD" }
+  ]
+}

@@ -1,0 +1,257 @@
+{
+    "mock_data_info": "Mock historical data for demo purposes",
+    "total_datasets": 50,
+    "usage": "Use ticker='0' to '49' with market='mock' to access these datasets",
+    "scenarios": [
+        {
+            "ticker": "0",
+            "name": "Strong Bull Market",
+            "description": "Consistent upward trend with moderate volatility"
+        },
+        {
+            "ticker": "1",
+            "name": "Bear Market",
+            "description": "Downward trend with increasing volatility"
+        },
+        {
+            "ticker": "2",
+            "name": "High Volatility Sideways",
+            "description": "No clear trend but high price swings"
+        },
+        {
+            "ticker": "3",
+            "name": "Stable Growth",
+            "description": "Steady upward movement with low volatility"
+        },
+        {
+            "ticker": "4",
+            "name": "Crash and Recovery",
+            "description": "Sharp decline followed by gradual recovery"
+        },
+        {
+            "ticker": "5",
+            "name": "Parabolic Rise",
+            "description": "Accelerating upward momentum"
+        },
+        {
+            "ticker": "6",
+            "name": "Distribution Phase",
+            "description": "Initial rise followed by consolidation and decline"
+        },
+        {
+            "ticker": "7",
+            "name": "Accumulation Phase",
+            "description": "Low volatility consolidation before breakout"
+        },
+        {
+            "ticker": "8",
+            "name": "Extreme Bull Run",
+            "description": "Very strong uptrend with high volatility"
+        },
+        {
+            "ticker": "9",
+            "name": "Market Crash",
+            "description": "Severe downtrend with panic selling"
+        },
+        {
+            "ticker": "10",
+            "name": "Choppy Market",
+            "description": "Frequent reversals and no clear direction"
+        },
+        {
+            "ticker": "11",
+            "name": "Recovery Rally",
+            "description": "Strong rebound from oversold conditions"
+        },
+        {
+            "ticker": "12",
+            "name": "Slow Decline",
+            "description": "Gradual bearish trend with low volatility"
+        },
+        {
+            "ticker": "13",
+            "name": "Breakout Momentum",
+            "description": "Breaking resistance with strong volume"
+        },
+        {
+            "ticker": "14",
+            "name": "Range-bound Trading",
+            "description": "Tight trading range with minimal movement"
+        },
+        {
+            "ticker": "15",
+            "name": "Flash Crash Recovery",
+            "description": "Sudden sharp drop with quick V-shaped recovery"
+        },
+        {
+            "ticker": "16",
+            "name": "Moderate Bull Trend",
+            "description": "Consistent but moderate upward movement"
+        },
+        {
+            "ticker": "17",
+            "name": "Declining Volatility",
+            "description": "Initial high volatility settling into calm"
+        },
+        {
+            "ticker": "18",
+            "name": "Rising Volatility Bull",
+            "description": "Uptrend with increasing uncertainty"
+        },
+        {
+            "ticker": "19",
+            "name": "Double Top Formation",
+            "description": "Rise, decline, rise again then fall"
+        },
+        {
+            "ticker": "20",
+            "name": "Double Bottom Recovery",
+            "description": "Fall, rise, fall again then recovery"
+        },
+        {
+            "ticker": "21",
+            "name": "Steady Bear Market",
+            "description": "Consistent downtrend without panic"
+        },
+        {
+            "ticker": "22",
+            "name": "Explosive Breakout",
+            "description": "Sudden strong upward move breaking resistance"
+        },
+        {
+            "ticker": "23",
+            "name": "Breakdown Collapse",
+            "description": "Breaking support with accelerating decline"
+        },
+        {
+            "ticker": "24",
+            "name": "Consolidation Squeeze",
+            "description": "Very tight range before potential move"
+        },
+        {
+            "ticker": "25",
+            "name": "Trending Channel Up",
+            "description": "Uptrend within parallel channel lines"
+        },
+        {
+            "ticker": "26",
+            "name": "Trending Channel Down",
+            "description": "Downtrend within parallel channel lines"
+        },
+        {
+            "ticker": "27",
+            "name": "Whipsaw Market",
+            "description": "Frequent false breakouts and reversals"
+        },
+        {
+            "ticker": "28",
+            "name": "Gradual Acceleration Up",
+            "description": "Slowly increasing upward momentum"
+        },
+        {
+            "ticker": "29",
+            "name": "Gradual Deceleration Down",
+            "description": "Slowing downward momentum into stability"
+        },
+        {
+            "ticker": "30",
+            "name": "Morning Star Pattern",
+            "description": "Bearish to bullish reversal pattern"
+        },
+        {
+            "ticker": "31",
+            "name": "Evening Star Pattern",
+            "description": "Bullish to bearish reversal pattern"
+        },
+        {
+            "ticker": "32",
+            "name": "Ascending Triangle",
+            "description": "Higher lows approaching resistance"
+        },
+        {
+            "ticker": "33",
+            "name": "Descending Triangle",
+            "description": "Lower highs approaching support"
+        },
+        {
+            "ticker": "34",
+            "name": "Symmetrical Triangle",
+            "description": "Converging highs and lows"
+        },
+        {
+            "ticker": "35",
+            "name": "Cup and Handle",
+            "description": "U-shaped recovery with consolidation"
+        },
+        {
+            "ticker": "36",
+            "name": "Head and Shoulders",
+            "description": "Classic bearish reversal pattern"
+        },
+        {
+            "ticker": "37",
+            "name": "Inverse Head and Shoulders",
+            "description": "Classic bullish reversal pattern"
+        },
+        {
+            "ticker": "38",
+            "name": "Pennant Formation",
+            "description": "Small symmetrical triangle after sharp move"
+        },
+        {
+            "ticker": "39",
+            "name": "Flag Formation",
+            "description": "Parallel channel after sharp move"
+        },
+        {
+            "ticker": "40",
+            "name": "Wedge Rising",
+            "description": "Narrowing channel with upward slope"
+        },
+        {
+            "ticker": "41",
+            "name": "Wedge Falling",
+            "description": "Narrowing channel with downward slope"
+        },
+        {
+            "ticker": "42",
+            "name": "Gap Up Continuation",
+            "description": "Strong opening gaps with follow-through"
+        },
+        {
+            "ticker": "43",
+            "name": "Gap Down Continuation",
+            "description": "Weak opening gaps with continued selling"
+        },
+        {
+            "ticker": "44",
+            "name": "Rounding Bottom",
+            "description": "Gradual U-shaped recovery pattern"
+        },
+        {
+            "ticker": "45",
+            "name": "Rounding Top",
+            "description": "Gradual inverse U-shaped decline"
+        },
+        {
+            "ticker": "46",
+            "name": "Dead Cat Bounce",
+            "description": "Brief recovery in strong downtrend"
+        },
+        {
+            "ticker": "47",
+            "name": "Bull Trap",
+            "description": "False breakout above resistance"
+        },
+        {
+            "ticker": "48",
+            "name": "Bear Trap",
+            "description": "False breakdown below support"
+        },
+        {
+            "ticker": "49",
+            "name": "Euphoria Peak",
+            "description": "Extreme optimism before reversal"
+        }
+    ]
+}

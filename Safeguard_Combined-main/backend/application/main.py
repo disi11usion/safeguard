@@ -1,0 +1,1456 @@
+from fastapi import FastAPI, HTTPException, Query, Body, Depends, Request
+from fastapi.middleware.cors import CORSMiddleware
+from typing import Dict, Any, Optional
+from pydantic import BaseModel
+import json
+from pathlib import Path
+import os
+from dotenv import load_dotenv
+from datetime import datetime, timedelta, timezone
+import asyncio
+import re
+from presentation import routes
+import psycopg2
+from psycopg2.extras import RealDictCursor
+import httpx
+from database.scripts import influencer_commission
+from database.scripts import user_auth
+import time
+import uuid
+import os
+from application.helper.logging import setup_logging, log_request, log_response, log_error
+from application.clients.polygon_client import PolygonClient
+from application.clients.twelvedata_client import TwelveDataClient
+from application.clients.correlation import CorrelationAnalyzer
+from application.clients.chatgpt_client import ChatGPTClient, ChatGPTRequest, ChatMessagesRequest
+from application.clients.chat_logic import generate_chat_reply_new, handle_landing_chat
+from application.clients.deepseek_client import DeepSeekClient
+from application.clients.whale_tracking import BlockCypherClient
+from application.clients.news_sentiment import NewsSentimentClient
+from application.clients.social_sentiment import SocialSentimentClient, _score_text
+from application.clients.reddit import RedditAPIClient
+from application.clients.government_client import get_government_client
+from database.scripts import data_request
+
+
+from application.services.market_shake import MarketShakeService
+
+logger = setup_logging()
+load_dotenv(dotenv_path='../../.env')
+
+tags_metadata = [
+    {"name": "Chat AI Models", "description": "AI models for chat, sentiment analysis and forecasting."},
+    {"name": "Whale", "description": "Whale tracking and large transaction analytics."},
+    {"name": "News", "description": "News sentiment and analytics for all asset types."},
+    {"name": "Reddit", "description": "Reddit data ingestion and analytics."},
+]
+
+app = FastAPI(title="Safeguard AI Investment Assistant API", version="1.0", openapi_tags=tags_metadata)
+
+@app.on_event("startup")
+async def on_startup():
+    ensure_disclaimer_table_exists()
+    # 服务启动后，在后台预热 social sentiment 缓存，避免第一次请求超时
+    asyncio.create_task(_warmup_social_sentiment_cache())
+
+async def _warmup_social_sentiment_cache():
+    """服务启动时在后台预先计算一次 social sentiment，结果存入缓存。
+    这样用户第一次请求时直接命中缓存，不会超时。"""
+    try:
+        await asyncio.sleep(5)  # 等待数据库连接就绪
+        logger.info("🔥 [Warmup] Starting social sentiment cache warmup...")
+        now = datetime.now(timezone.utc)
+        start_dt = now - timedelta(hours=24)
+        end_dt = now
+        effective_limit = 100
+        posts_df = await asyncio.to_thread(
+            data_request.get_social_posts,
+            start_time=start_dt,
+            end_time=end_dt,
+            limit=effective_limit
+        )
+        if posts_df is not None and not posts_df.empty:
+            posts = posts_df.to_dict(orient="records")
+            cache_key = (start_dt.isoformat(), end_dt.isoformat(), effective_limit, len(posts))
+            await asyncio.to_thread(
+                social_sentiment_client.summarize_posts,
+                posts,
+                cache_key
+            )
+            logger.info(f"✅ [Warmup] Social sentiment cache warmed up with {len(posts)} posts.")
+        else:
+            logger.warning("⚠️ [Warmup] No social posts found for warmup window.")
+    except Exception as e:
+        logger.warning(f"⚠️ [Warmup] Social sentiment warmup failed (non-critical): {e}")
+    
+origins_env = os.getenv("FRONTEND_ORIGINS", "")
+origins = [origin.strip() for origin in origins_env.split(",") if origin.strip()]
+if not origins:
+    origins = [
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:5173",
+    ]
+USE_STRIPE_MOCK = os.getenv("STRIPE_MOCK", "FALSE").lower() == "true"
+
+
+
+@app.middleware("http")
+async def log_all_requests(request: Request, call_next):
+    start_time = time.time()
+
+    # Log incoming request
+    logger.info(
+        f"🌐 REQUEST → {request.method} {request.url.path}"
+        f" | query={dict(request.query_params)}"
+    )
+
+    response = await call_next(request)
+
+    duration = round((time.time() - start_time) * 1000, 2)
+
+    # Log response
+    logger.info(
+        f"✅ RESPONSE ← {request.method} {request.url.path}"
+        f" | status={response.status_code}"
+        f" | {duration}ms"
+    )
+
+    return response
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_origin_regex=r"^https?://(localhost|127\\.0\\.0\\.1)(:\\d+)?$",
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+polygon_client = PolygonClient()
+twelvedata_client = TwelveDataClient()
+correlation_analyzer = CorrelationAnalyzer()
+chatgpt_client = ChatGPTClient()
+deepseek_client = DeepSeekClient()
+blockcypher_client = BlockCypherClient()
+news_client = NewsSentimentClient()
+social_sentiment_client = SocialSentimentClient()
+reddit_client = RedditAPIClient()
+market_shake_service = MarketShakeService()
+
+DATABASE_URL = os.getenv("DATABASE_URL")
+USING_MOCK_DATA = os.getenv('USING_MOCK_DATA', 'FALSE').upper() == 'TRUE'
+
+
+def classify_social_item_sentiment(score: float) -> str:
+    if score > 0.15:
+        return "positive"
+    if score < -0.15:
+        return "negative"
+    return "neutral"
+
+def get_db_conn():
+    if not DATABASE_URL:
+        raise RuntimeError("DATABASE_URL not set")
+    return psycopg2.connect(DATABASE_URL)
+
+DISCLAIMER_ACCEPTANCES_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS disclaimer_acceptances (
+  id SERIAL PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  disclaimer_version TEXT NOT NULL,
+  disclaimer_hash TEXT NOT NULL,
+  country TEXT,
+  accepted BOOLEAN DEFAULT TRUE,
+  accepted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  ip_address TEXT,
+  user_id INTEGER NULL
+);
+"""
+
+def ensure_disclaimer_table_exists():
+    conn = None
+    cur = None
+    try:
+        conn = get_db_conn()
+        cur = conn.cursor()
+        cur.execute(DISCLAIMER_ACCEPTANCES_TABLE_SQL)
+        conn.commit()
+        logger.info("✅ Ensured disclaimer_acceptances table exists")
+    except Exception as e:
+        logger.error(f"❌ Failed ensuring disclaimer_acceptances table: {e}")
+        # Don’t crash startup; but you can choose to raise if you want hard-fail
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
+
+@app.get("/")
+async def root():
+    endpoint = "GET /"
+    log_request(logger, endpoint, {})
+    response = {"message": "Stock Correlation API", "version": "1.0", "timestamp": datetime.now().isoformat()}
+    log_response(logger, endpoint, response)
+    return response
+
+
+@app.get("/api/market-shake/summary")
+async def get_market_shake_summary():
+    endpoint = "GET /api/market-shake/summary"
+    log_request(logger, endpoint, {})
+    try:
+        result = market_shake_service.get_summary()
+        log_response(logger, endpoint, {"assets_count": len(result.get("assets", []))}, success=True)
+        return result
+    except Exception as e:
+        log_error(logger, endpoint, e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/market-shake/events")
+async def get_market_shake_events(
+    scope: str = Query("single", description="single | combined"),
+    asset: str = Query("Bitcoin", description="Asset name. Used only in single mode."),
+    topN: int = Query(5, ge=1, le=50),
+    window: int = Query(126, ge=5, le=1000),
+    mergeGap: int = Query(180, ge=0, le=2000),
+    combinedBaseline: str = Query("normalized", description="combined baseline: normalized | geomean"),
+):
+    endpoint = "GET /api/market-shake/events"
+    params = {
+        "scope": scope,
+        "asset": asset,
+        "topN": topN,
+        "window": window,
+        "mergeGap": mergeGap,
+        "combinedBaseline": combinedBaseline,
+    }
+    log_request(logger, endpoint, params)
+    try:
+        normalized_scope = scope.lower()
+        if normalized_scope not in {"single", "combined"}:
+            raise HTTPException(status_code=400, detail="Invalid scope. Must be 'single' or 'combined'.")
+        baseline = combinedBaseline.lower()
+        if baseline not in {"normalized", "geomean"}:
+            raise HTTPException(status_code=400, detail="Invalid combinedBaseline. Must be 'normalized' or 'geomean'.")
+
+        result = market_shake_service.get_events(
+            scope=normalized_scope,
+            asset=asset if normalized_scope == "single" else "Bitcoin",
+            top_n=topN,
+            window=window,
+            merge_gap=mergeGap,
+            combined_baseline=baseline,
+        )
+        log_response(
+            logger,
+            endpoint,
+            {"series_count": len(result.get("series", [])), "events_count": len(result.get("events", []))},
+            success=True,
+        )
+        return result
+    except ValueError as ve:
+        log_error(logger, endpoint, ve)
+        raise HTTPException(status_code=400, detail=str(ve))
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_error(logger, endpoint, e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/correlation")
+async def calculate_correlation(request: Dict[str, Any] = Body(...)):
+    """
+    Calculate correlation matrix for given symbols with pre-fetched stock data
+    """
+    endpoint = "POST /api/correlation"
+    params = {
+        "symbols": request.get("symbols", []),
+        "start_date": request.get("start_date"),
+        "end_date": request.get("end_date"),
+        "data_points": sum(len(data) for data in request.get("stock_data", {}).values())
+    }
+    log_request(logger, endpoint, params)
+    
+    try:
+        symbols = request.get("symbols", [])
+        raw_stock_data = request.get("stock_data", {})
+        start_date = request.get("start_date")
+        end_date = request.get("end_date")
+        
+        if not symbols or not raw_stock_data:
+            raise HTTPException(status_code=400, detail="symbols and stock_data are required")
+        
+        formatted_stock_data = {}
+        for symbol, data_points in raw_stock_data.items():
+            formatted_data = []
+            for item in data_points:
+                formatted_data.append({
+                    'date': datetime.fromtimestamp(item['t'] / 1000).strftime('%Y-%m-%d') if 't' in item else item.get('timestamp'),
+                    'open': item.get('o', item.get('open')),
+                    'high': item.get('h', item.get('high')),
+                    'low': item.get('l', item.get('low')),
+                    'close': item.get('c', item.get('close', item.get('price'))),
+                    'volume': item.get('v', item.get('volume')),
+                    'timestamp': item.get('t', item.get('timestamp'))
+                })
+            formatted_stock_data[symbol] = formatted_data
+        
+        # Calculate correlation matrix
+        correlation_result = correlation_analyzer.calculate_correlation_matrix(formatted_stock_data)
+        correlation_result["symbols"] = symbols
+        correlation_result["period"] = f"{start_date} to {end_date}" if start_date and end_date else "N/A"
+        
+        log_response(logger, endpoint, correlation_result, success=True)
+        return correlation_result
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_error(logger, endpoint, e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/stock/{symbol}")
+async def get_stock_data(symbol: str, start_date: str, end_date: str):
+    """Get historical data for a single stock"""
+    endpoint = f"GET /api/stock/{symbol}"
+    params = {"symbol": symbol, "start_date": start_date, "end_date": end_date}
+    log_request(logger, endpoint, params)
+    
+    try:
+        data = await polygon_client.get_single_stock_data(symbol, start_date, end_date)
+        response = {"symbol": symbol, "data": data}
+        log_response(logger, endpoint, response)
+        return response
+    except Exception as e:
+        log_error(logger, endpoint, e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/historical/ticker")
+async def get_unified_historical_data(
+    ticker: str = Query(..., description="Ticker symbol (e.g., BTCUSD, X:BTCUSD, AAPL, C:EURUSD)"),
+    start_date: str = Query(..., description="Start date (YYYY-MM-DD)"),
+    end_date: str = Query(..., description="End date (YYYY-MM-DD)"),
+    market: str = Query(..., description="Market type: crypto, stocks, forex"),
+    timespan: str = Query("day", description="Time interval (default: day)")
+):
+    """
+    Get unified historical OHLCV data for crypto/stock/forex.
+    Automatically adds market-specific prefixes (X: for crypto, C: for forex) if not present.
+    """
+    endpoint = "GET /api/historical/ticker"
+    log_request(logger, endpoint, {"ticker": ticker, "start_date": start_date, "end_date": end_date, "market": market})
+    
+    try:
+        if market not in ["crypto", "stocks", "forex"]:
+            raise HTTPException(status_code=400, detail="Invalid market type. Must be 'crypto', 'stocks', or 'forex'")
+        
+        result = await polygon_client.get_unified_historical_data(ticker, start_date, end_date, market, timespan)
+        log_response(logger, endpoint, result, success=result.get("success", False))
+        
+        if not result.get("success"):
+            raise HTTPException(status_code=404, detail=result.get("error", "Failed to fetch historical data"))
+        
+        return result
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_error(logger, endpoint, e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/mock/scenarios")
+async def get_mock_scenarios():
+    endpoint = "GET /api/mock/scenarios"
+    log_request(logger, endpoint, {})
+    
+    try:
+        if not USING_MOCK_DATA:
+            return {
+                "success": False,
+                "message": "Mock data mode is not enabled. Set USING_MOCK_DATA=TRUE in .env",
+                "scenarios": []
+            }
+        
+        mock_data_dir = Path(__file__).parent.parent / "_lib"
+        index_path = mock_data_dir / "mock_data_index.json"
+        
+        if not index_path.exists():
+            raise HTTPException(status_code=404, detail="Mock data index not found")
+        
+        with open(index_path, 'r', encoding='utf-8') as f:
+            index_data = json.load(f)
+        
+        log_response(logger, endpoint, {"scenarios_count": len(index_data.get("scenarios", []))}, success=True)
+        
+        return {
+            "success": True,
+            "using_mock_data": USING_MOCK_DATA,
+            "info": index_data.get("mock_data_info", ""),
+            "usage": index_data.get("usage", ""),
+            "total_datasets": index_data.get("total_datasets", 0),
+            "scenarios": index_data.get("scenarios", [])
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_error(logger, endpoint, e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+class TickerNormalizerRequest(BaseModel):
+    text: str
+
+@app.post("/api/deepseek/tickernormalizer", tags=["Chat AI Models"])
+async def normalize_tickers(request: TickerNormalizerRequest):
+    """
+    Extract and normalize stock/crypto tickers from natural language text
+    """
+    endpoint = "POST /api/deepseek/tickernormalizer"
+    params = {"text": request.text[:100] + "..." if len(request.text) > 100 else request.text}
+    log_request(logger, endpoint, params)
+    
+    try:
+        result = await deepseek_client.normalize_tickers(request.text)
+        log_response(logger, endpoint, {"tickers": result["tickers"], "count": result["count"]}, success=True)
+        return result
+        
+    except httpx.HTTPStatusError as e:
+        error_msg = f"Third-party API error: {e.response.status_code}"
+        log_error(logger, endpoint, error_msg)
+        raise HTTPException(status_code=502, detail=error_msg)
+    except httpx.TimeoutException:
+        error_msg = "Third-party API timeout"
+        log_error(logger, endpoint, error_msg)
+        raise HTTPException(status_code=504, detail=error_msg)
+    except Exception as e:
+        log_error(logger, endpoint, e)
+        raise HTTPException(status_code=500, detail=str(e))
+    
+
+@app.post("/api/deepseek/correlationsummary", tags=["Chat AI Models"])
+async def correlation_summary(correlation_data: Dict[str, Any] = Body(...)):
+    """
+    Generate AI-powered correlation analysis summary using DeepSeek API
+    """
+    endpoint = "POST /api/deepseek/correlationsummary"
+    log_request(logger, endpoint, {"data_keys": list(correlation_data.keys()) if isinstance(correlation_data, dict) else []})
+    
+    try:
+        # Validate input
+        if not correlation_data or not isinstance(correlation_data, dict):
+            raise HTTPException(status_code=400, detail="correlation_data must be a non-empty dictionary")
+        
+        # Use mock data if USING_MOCK_DATA is enabled
+        if USING_MOCK_DATA:
+            import asyncio
+            logger.info("[MOCK MODE] Using mock DeepSeek analysis data")
+            
+            # Sleep for 2 seconds to simulate API call
+            await asyncio.sleep(2)
+            
+            # Load mock data
+            mock_file = Path(__file__).parent.parent / "_lib" / "mock_deepseek_analysis.json"
+            
+            if not mock_file.exists():
+                raise HTTPException(status_code=404, detail="Mock DeepSeek analysis file not found")
+            
+            with open(mock_file, 'r', encoding='utf-8') as f:
+                result = json.load(f)
+            
+            return result
+        
+        # Call DeepSeek client for real API mode
+        result = await deepseek_client.generate_correlation_summary(correlation_data)
+        
+        # Log response
+        log_response(
+            logger, 
+            endpoint, 
+            {
+                "source": result.get("source", "api"),
+                "has_title": bool(result.get("title")),
+                "has_summary": bool(result.get("summary"))
+            }, 
+            success=True
+        )
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_error(logger, endpoint, f"Failed to generate correlation summary: {e}")
+        raise HTTPException(status_code=500, detail="Failed to generate correlation summary")
+    
+    
+@app.get("/api/market-summary/technical-indicators")
+async def get_market_summary_with_technical_indicators(
+    ticker: str = Query(..., description="Ticker symbol (e.g., BTC, AAPL, EUR/USD)"),
+    market: str = Query(..., description="Market type: crypto, stock, forex, futures"),
+    days: int = Query(12, ge=5, le=30, description="Number of days for historical data (5-30)")
+):
+    """
+    Get market summary with technical indicators for the last N days
+    Returns: 24h High/Low, Volume, SMA, EMA, MACD, RSI, 24h Change, N-day Change
+    """
+    endpoint = f"GET /api/market-summary/technical-indicators"
+    log_request(logger, endpoint, {"ticker": ticker, "market": market, "days": days})
+    
+    try:
+        # Validate market type
+        valid_markets = ["crypto", "stock", "forex", "futures"]
+        if market not in valid_markets:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid market type. Must be one of: {', '.join(valid_markets)}"
+            )
+        
+        # Futures use forex endpoint
+        api_market = "forex" if market == "futures" else market
+        
+        # Get market summary with indicators
+        result = await polygon_client.get_market_summary_with_indicators(
+            ticker=ticker,
+            market=api_market,
+            days=days
+        )
+        
+        if not result.get('success'):
+            raise HTTPException(
+                status_code=404,
+                detail=result.get('error', 'Failed to fetch market data')
+            )
+        
+        log_response(logger, endpoint, result)
+        return result
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_error(logger, endpoint, str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@app.get("/api/comprehensive/top_list")   
+async def get_comprehensive_top_list(
+    market: str = Query("stocks", description="Market type: stocks, forex, futures, crypto")
+):
+    endpoint = f"GET /api/comprehensive/top_list?market={market}"
+    log_request(logger, endpoint, {"market": market})
+    
+    try:
+        valid_markets = ["stocks", "forex", "futures", "crypto"]
+        if market not in valid_markets:
+            raise HTTPException(status_code=400, detail=f"Invalid market type. Must be one of: {', '.join(valid_markets)}")
+        
+        if market in ["crypto", "forex", "stocks"]:
+            market_mapping = {"crypto": "crypto", "forex": "fx", "stocks": "stocks"}
+            api_market = market if USING_MOCK_DATA else market_mapping[market]
+            result = await polygon_client.get_comprehensive_market_data(api_market, limit=50)
+            log_response(logger, endpoint, {"count": result.get("count", 0), "mock": USING_MOCK_DATA}, success=result.get("success", False))
+            return result
+        
+        elif market == "futures":
+            if USING_MOCK_DATA:
+                result = await polygon_client.get_comprehensive_market_data(market, limit=50)
+                log_response(logger, endpoint, {"count": result.get("count", 0), "mock": True}, success=result.get("success", False))
+                return result
+            
+            futures_data_path = os.path.join(os.path.dirname(__file__), "../_lib/mock_list_futures.json")
+            with open(futures_data_path, 'r', encoding='utf-8') as f:
+                futures_data = json.load(f)
+            
+            futures_list = futures_data.get("futures", [])
+            transformed_data = await twelvedata_client.process_futures_list(futures_list)
+            
+            result = {
+                "success": True,
+                "market": market,
+                "count": len(transformed_data),
+                "data": transformed_data
+            }
+            
+            log_response(logger, endpoint, {"count": len(transformed_data), "mock": False}, success=True)
+            return result
+        
+        raise HTTPException(status_code=400, detail=f"Unsupported market type: {market}")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_error(logger, endpoint, e)
+        raise HTTPException(status_code=500, detail=str(e))
+    
+
+
+@app.post("/api/ai/generate-report", tags=["Chat AI Models"])
+async def generate_ai_report(request: ChatGPTRequest):
+    """Generate AI research report based on user query"""
+    endpoint = "POST /api/ai/generate-report"
+    params = {
+        "query": request.query[:100] + "..." if len(request.query) > 100 else request.query,
+        "model": request.model,
+        "max_tokens": request.max_tokens,
+        "temperature": request.temperature
+    }
+    log_request(logger, endpoint, params)
+    
+    try:
+        result = await chatgpt_client.generate_report(
+            query=request.query,
+            model=request.model,
+            max_tokens=request.max_tokens,
+            temperature=request.temperature
+        )
+        log_response(logger, endpoint, result, success=result.get("success", True))
+        return result
+    except Exception as e:
+        log_error(logger, endpoint, e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/ai/chat", tags=["Chat AI Models"])
+async def chat_with_ai(request: ChatMessagesRequest):
+    """Chat with AI assistant with conversation context"""
+    endpoint = "POST /api/ai/chat"
+    params = {
+        "model": request.model,
+        "messages_count": len(request.messages),
+        "max_tokens": request.max_tokens,
+        "temperature": request.temperature
+    }
+    log_request(logger, endpoint, params)
+    
+    try:
+        # Convert Pydantic models to dict for the rule-based chat logic.
+        messages_dict = [{"role": msg.role, "content": msg.content} for msg in request.messages]
+
+        result = generate_chat_reply_new(messages_dict)
+        if result is None:
+            result = {
+                "success": False,
+                "error": "No response generated by chat logic.",
+                "content": None,
+            }
+        log_response(logger, endpoint, result, success=result.get("success", True))
+        return result
+    except Exception as e:
+        log_error(logger, endpoint, e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/ai/landing-chat", tags=["Chat AI Models"])
+async def landing_chat(request: ChatMessagesRequest):
+    """
+    Landing chat flow endpoint.
+    Business logic is delegated to application.clients.chat_logic.
+    """
+    endpoint = "POST /api/ai/landing-chat"
+    params = {
+        "model": request.model,
+        "messages_count": len(request.messages),
+        "max_tokens": request.max_tokens,
+        "temperature": request.temperature,
+    }
+    log_request(logger, endpoint, params)
+
+    try:
+        messages_dict = [{"role": msg.role, "content": msg.content} for msg in request.messages]
+        result = await handle_landing_chat(
+            messages=messages_dict,
+            model=request.model,
+            max_tokens=request.max_tokens,
+            temperature=request.temperature,
+        )
+        log_response(logger, endpoint, result, success=result.get("success", True))
+        return result
+    except Exception as e:
+        log_error(logger, endpoint, e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/whale/btc", tags=["Whale"])
+async def get_btc_whale_transactions(
+    limit: int = 50,
+    min_value: int = 100000000
+):
+    """Get large BTC transactions (whale activity)"""
+    endpoint = "GET /api/whale/btc"
+    params = {"limit": limit, "min_value": min_value}
+    log_request(logger, endpoint, params)
+    
+    try:
+        result = await blockcypher_client.get_large_transactions(
+            limit=limit,
+            min_value=min_value
+        )
+        log_response(logger, endpoint, result, success=result.get("success", True))
+        return result
+    except Exception as e:
+        log_error(logger, endpoint, e)
+        raise HTTPException(status_code=500, detail=str(e))
+    
+
+@app.get("/api/news/sentiment",tags=["News"])
+async def get_news_sentiment(
+    tickers: Optional[str] = None,
+    topics: Optional[str] = None,
+    time_from: Optional[str] = None,
+    time_to: Optional[str] = None,
+    sort: str = "LATEST",
+    limit: int = 50,
+    market: Optional[str] = None
+):
+    endpoint = "GET /api/news/sentiment"
+    log_request(logger, endpoint, {
+        "tickers": tickers,
+        "topics": topics,
+        "time_from": time_from,
+        "time_to": time_to,
+        "sort": sort,
+        "limit": limit,
+        "market": market
+    })
+    
+    try:
+        if USING_MOCK_DATA:
+            if market == "crypto":
+                mock_file = Path(__file__).parent.parent / "_lib" / "mock_news_sentiment_crypto.json"
+            elif market == "forex":
+                mock_file = Path(__file__).parent.parent / "_lib" / "mock_news_sentiment_forex.json"
+            else:
+                mock_file = Path(__file__).parent.parent / "_lib" / "mock_news_sentiment_stocks.json"
+            
+            logger.info(f"[MOCK MODE] Loading mock data from: {mock_file}")
+            if not mock_file.exists():
+                logger.warning(f"[MOCK MODE] Mock file not found: {mock_file}; returning empty feed")
+                mock_data = {"feed": []}
+            else:
+                with open(mock_file, 'r') as f:
+                    mock_data = json.load(f)
+            
+            articles = mock_data.get("feed") or mock_data.get("items", [])
+            logger.info(f"[MOCK MODE] Mock data loaded: {len(articles)} articles")
+            
+            news_items = []
+            for article in articles:
+                ticker_sentiments = []
+                raw_sentiments = article.get("ticker_sentiments") or article.get("ticker_sentiment", [])
+                
+                for ts in raw_sentiments:
+                    ticker_sentiments.append({
+                        "ticker": ts.get("ticker"),
+                        "relevance_score": float(ts.get("relevance_score", 0)),
+                        "sentiment_score": float(ts.get("sentiment_score") or ts.get("ticker_sentiment_score", 0)),
+                        "sentiment_label": ts.get("sentiment_label") or ts.get("ticker_sentiment_label", "Neutral")
+                    })
+                
+                topics_list = []
+                for topic in article.get("topics", []):
+                    topics_list.append({
+                        "topic": topic.get("topic"),
+                        "relevance_score": float(topic.get("relevance_score", 0))
+                    })
+                
+                news_items.append({
+                    "title": article.get("title"),
+                    "url": article.get("url"),
+                    "time_published": article.get("time_published"),
+                    "authors": article.get("authors", []),
+                    "summary": article.get("summary"),
+                    "banner_image": article.get("banner_image"),
+                    "source": article.get("source"),
+                    "category": article.get("category") or article.get("category_within_source"),
+                    "source_domain": article.get("source_domain"),
+                    "overall_sentiment_score": float(article.get("overall_sentiment_score", 0)),
+                    "overall_sentiment_label": article.get("overall_sentiment_label", "Neutral"),
+                    "ticker_sentiments": ticker_sentiments,
+                    "topics": topics_list
+                })
+            
+            if tickers:
+                requested_tickers = [t.strip().upper() for t in tickers.split(",")]
+                logger.info(f"[MOCK MODE] Market: {market}, Filtering for tickers: {requested_tickers}")
+                
+                filtered_items = []
+                for item in news_items:
+                    item_tickers = []
+                    for ts in item.get("ticker_sentiments", []):
+                        ticker = ts.get("ticker", "")
+                        if market == "forex" and ticker.startswith("FOREX:"):
+                            item_tickers.append(ticker.replace("FOREX:", ""))
+                        elif market == "crypto" and ticker.startswith("CRYPTO:"):
+                            item_tickers.append(ticker.replace("CRYPTO:", ""))
+                        else:
+                            item_tickers.append(ticker)
+                    
+                    if any(rt in item_tickers for rt in requested_tickers):
+                        filtered_items.append(item)
+                
+                news_items = filtered_items
+                logger.info(f"[MOCK MODE] After filtering: {len(news_items)} articles")
+            
+            news_items = news_items[:limit]
+            logger.info(f"[MOCK MODE] Returning {len(news_items)} articles")
+            
+            return {
+                "success": True,
+                "provider": "Mock Data",
+                "items": news_items,
+                "count": len(news_items),
+                "sentiment_score_definition": mock_data.get("sentiment_score_definition")
+            }
+        
+        else:
+            logger.info(f"[API MODE] Calling AlphaVantage API for market: {market}")
+            
+            formatted_tickers = tickers
+            if tickers:
+                prefix = "CRYPTO:" if market == "crypto" else "FOREX:" if market == "forex" else ""
+                if prefix:
+                    formatted_tickers = ",".join([
+                        f"{prefix}{t.strip().upper()}" if not t.strip().startswith(prefix) else t.strip().upper()
+                        for t in tickers.split(",")
+                    ])
+            
+            logger.info(f"[API MODE] Formatted tickers: {formatted_tickers}")
+            
+            result = await news_client.get_news_sentiment(
+                tickers=formatted_tickers,
+                topics=topics,
+                time_from=time_from,
+                time_to=time_to,
+                sort=sort,
+                limit=limit,
+                market=market,
+            )
+            
+            log_response(logger, endpoint, result, success=result.get("success", True))
+            return result
+        
+    except Exception as e:
+        log_error(logger, endpoint, e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/news/sentiment/summary", tags=["News"])
+async def get_news_sentiment_summary(
+    tickers: Optional[str] = None,
+    topics: Optional[str] = None,
+    time_from: Optional[str] = None,
+    time_to: Optional[str] = None,
+    sort: str = "LATEST",
+    limit: int = 1000,
+    market: Optional[str] = None,
+    window_hours: int = 24
+):
+    endpoint = "GET /api/news/sentiment/summary"
+    log_request(logger, endpoint, {
+        "tickers": tickers,
+        "topics": topics,
+        "time_from": time_from,
+        "time_to": time_to,
+        "sort": sort,
+        "limit": limit,
+        "market": market,
+        "window_hours": window_hours
+    })
+
+    try:
+        now = datetime.utcnow()
+        if not time_to:
+            time_to = now.strftime("%Y%m%dT%H%M")
+        if not time_from:
+            time_from = (now - timedelta(hours=window_hours)).strftime("%Y%m%dT%H%M")
+
+        if USING_MOCK_DATA:
+            if market == "crypto":
+                mock_file = Path(__file__).parent.parent / "_lib" / "mock_news_sentiment_crypto.json"
+            elif market == "forex":
+                mock_file = Path(__file__).parent.parent / "_lib" / "mock_news_sentiment_forex.json"
+            else:
+                mock_file = Path(__file__).parent.parent / "_lib" / "mock_news_sentiment_stocks.json"
+
+            logger.info(f"[MOCK MODE] Loading mock data from: {mock_file}")
+            if not mock_file.exists():
+                logger.warning(f"[MOCK MODE] Mock file not found: {mock_file}; returning empty feed")
+                mock_data = {"feed": []}
+            else:
+                with open(mock_file, 'r') as f:
+                    mock_data = json.load(f)
+
+            articles = mock_data.get("feed") or mock_data.get("items", [])
+            logger.info(f"[MOCK MODE] Mock data loaded: {len(articles)} articles")
+
+            news_items = []
+            for article in articles:
+                ticker_sentiments = []
+                raw_sentiments = article.get("ticker_sentiments") or article.get("ticker_sentiment", [])
+
+                for ts in raw_sentiments:
+                    ticker_sentiments.append({
+                        "ticker": ts.get("ticker"),
+                        "relevance_score": float(ts.get("relevance_score", 0)),
+                        "sentiment_score": float(ts.get("sentiment_score") or ts.get("ticker_sentiment_score", 0)),
+                        "sentiment_label": ts.get("sentiment_label") or ts.get("ticker_sentiment_label", "Neutral")
+                    })
+
+                topics_list = []
+                for topic in article.get("topics", []):
+                    topics_list.append({
+                        "topic": topic.get("topic"),
+                        "relevance_score": float(topic.get("relevance_score", 0))
+                    })
+
+                news_items.append({
+                    "title": article.get("title"),
+                    "url": article.get("url"),
+                    "time_published": article.get("time_published"),
+                    "authors": article.get("authors", []),
+                    "summary": article.get("summary"),
+                    "banner_image": article.get("banner_image"),
+                    "source": article.get("source"),
+                    "category": article.get("category") or article.get("category_within_source"),
+                    "source_domain": article.get("source_domain"),
+                    "overall_sentiment_score": float(article.get("overall_sentiment_score", 0)),
+                    "overall_sentiment_label": article.get("overall_sentiment_label", "Neutral"),
+                    "ticker_sentiments": ticker_sentiments,
+                    "topics": topics_list
+                })
+
+            if tickers:
+                requested_tickers = [t.strip().upper() for t in tickers.split(",")]
+                logger.info(f"[MOCK MODE] Market: {market}, Filtering for tickers: {requested_tickers}")
+
+                filtered_items = []
+                for item in news_items:
+                    item_tickers = []
+                    for ts in item.get("ticker_sentiments", []):
+                        ticker = ts.get("ticker", "")
+                        if market == "forex" and ticker.startswith("FOREX:"):
+                            item_tickers.append(ticker.replace("FOREX:", ""))
+                        elif market == "crypto" and ticker.startswith("CRYPTO:"):
+                            item_tickers.append(ticker.replace("CRYPTO:", ""))
+                        else:
+                            item_tickers.append(ticker)
+
+                    if any(rt in item_tickers for rt in requested_tickers):
+                        filtered_items.append(item)
+
+                news_items = filtered_items
+                logger.info(f"[MOCK MODE] After filtering: {len(news_items)} articles")
+
+            news_items = news_items[:min(limit, 1000)]
+
+            summary = NewsSentimentClient.summarize_general_items(news_items)
+            summary.update({
+                "success": True,
+                "provider": "Mock Data",
+                "count": len(news_items),
+                "time_from": time_from,
+                "time_to": time_to,
+                "market": market,
+                "sentiment_score_definition": mock_data.get("sentiment_score_definition")
+            })
+
+            log_response(logger, endpoint, summary, success=True)
+            return summary
+
+        formatted_tickers = tickers
+        if tickers:
+            prefix = "CRYPTO:" if market == "crypto" else "FOREX:" if market == "forex" else ""
+            if prefix:
+                formatted_tickers = ",".join([
+                    f"{prefix}{t.strip().upper()}" if not t.strip().startswith(prefix) else t.strip().upper()
+                    for t in tickers.split(",")
+                ])
+
+        effective_limit = min(limit, 200)
+        result = await news_client.analyze_general_sentiment(
+            tickers=formatted_tickers,
+            topics=topics,
+            time_from=time_from,
+            time_to=time_to,
+            sort=sort,
+            limit=effective_limit,
+            market=market,
+        )
+
+        if result.get("success"):
+            result.update({
+                "time_from": time_from,
+                "time_to": time_to,
+                "market": market,
+                "count": result.get("total_articles", 0),
+                "limit": effective_limit
+            })
+
+        log_response(logger, endpoint, result, success=result.get("success", True))
+        return result
+
+    except Exception as e:
+        log_error(logger, endpoint, e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/social/sentiment/summary", tags=["News"])
+async def get_social_sentiment_summary(
+    time_from: Optional[str] = None,
+    time_to: Optional[str] = None,
+    window_hours: int = 24,
+    limit: int = 1000
+):
+    endpoint = "GET /api/social/sentiment/summary"
+    log_request(logger, endpoint, {
+        "time_from": time_from,
+        "time_to": time_to,
+        "window_hours": window_hours,
+        "limit": limit
+    })
+
+    def parse_time(value: Optional[str]) -> Optional[datetime]:
+        if not value:
+            return None
+        if re.match(r"^\\d{8}T\\d{6}$", value):
+            return datetime.strptime(value, "%Y%m%dT%H%M%S").replace(tzinfo=timezone.utc)
+        if re.match(r"^\\d{8}T\\d{4}$", value):
+            return datetime.strptime(value, "%Y%m%dT%H%M").replace(tzinfo=timezone.utc)
+        try:
+            return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+
+    try:
+        now = datetime.now(timezone.utc)
+        start_dt = parse_time(time_from)
+        end_dt = parse_time(time_to)
+
+        if end_dt is None:
+            end_dt = now
+        if start_dt is None:
+            start_dt = end_dt - timedelta(hours=window_hours)
+
+        effective_limit = min(limit, 100)
+        posts_df = await asyncio.to_thread(
+            data_request.get_social_posts,
+            start_time=start_dt,
+            end_time=end_dt,
+            limit=effective_limit
+        )
+        if posts_df is None or posts_df.empty:
+            return {
+                "success": False,
+                "message": "No social data found for the requested window",
+                "time_from": start_dt.isoformat(),
+                "time_to": end_dt.isoformat()
+            }
+
+        posts = posts_df.to_dict(orient="records")
+        cache_key = (start_dt.isoformat(), end_dt.isoformat(), effective_limit, len(posts))
+        try:
+            summary = await asyncio.to_thread(
+                social_sentiment_client.summarize_posts,
+                posts,
+                cache_key
+            )
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"Social sentiment unavailable: {e}",
+                "time_from": start_dt.isoformat(),
+                "time_to": end_dt.isoformat()
+            }
+
+        result = {
+            "success": True,
+            "time_from": start_dt.isoformat(),
+            "time_to": end_dt.isoformat(),
+            "window_hours": window_hours,
+            "limit": effective_limit
+        }
+        result.update(summary)
+
+        log_response(logger, endpoint, result, success=True)
+        return result
+
+    except Exception as e:
+        log_error(logger, endpoint, e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/preference_list")
+async def get_preference_list(
+    category: Optional[str] = Query(None, description="Filter by category: crypto, stock, forex, futures. If not provided, returns all.")
+):
+    """
+    Get available assets for user preference selection from database.
+    """
+    endpoint = f"GET /api/preference_list?category={category}"
+    log_request(logger, endpoint, {"category": category})
+
+    conn = None
+    cursor = None
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+        # Build query based on category filter
+        if category:
+            # Validate category
+            valid_categories = ['crypto', 'stock', 'forex', 'futures']
+            if category not in valid_categories:
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"Invalid category. Must be one of: {', '.join(valid_categories)}"
+                )
+            
+            query = """
+                SELECT crypto_id, name, symbol_binance, category
+                FROM reference.cryptocurrencies
+                WHERE category = %s AND is_active = TRUE
+                ORDER BY name ASC
+            """
+            cursor.execute(query, (category,))
+        else:
+            query = """
+                SELECT crypto_id, name, symbol_binance, category
+                FROM reference.cryptocurrencies
+                WHERE is_active = TRUE
+                ORDER BY category ASC, name ASC
+            """
+            cursor.execute(query)
+
+        assets = cursor.fetchall()
+
+        # Group assets by category
+        grouped = {
+            "cryptocurrencies": [],
+            "us_stocks": [],
+            "forex_pairs": [],
+            "metal_futures": []
+        }
+
+        category_map = {
+            "crypto": "cryptocurrencies",
+            "stock": "us_stocks",
+            "forex": "forex_pairs",
+            "futures": "metal_futures"
+        }
+
+        for asset in assets:
+            group_key = category_map.get(asset['category'])
+            if group_key:
+                grouped[group_key].append({
+                    "crypto_id": asset['crypto_id'],  # Keep using crypto_id for consistency
+                    "name": asset['name'],
+                    "symbol": asset['symbol_binance'],
+                    "category": asset['category']
+                })
+
+        result = {
+            "total_count": len(assets),
+            "assets": grouped
+        }
+
+        log_response(logger, endpoint, {"total_count": len(assets)}, success=True)
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_error(logger, endpoint, e)
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+
+# Include presentation routes with /v1 prefix
+app.include_router(routes.router, prefix="/v1")
+# Compatibility mount for clients that call /api/v1/*
+app.include_router(routes.router, prefix="/api/v1")
+
+# ========== Reddit API Endpoints ==========
+@app.get("/api/reddit/subreddit/{subreddit}", tags=["Reddit"])
+async def get_reddit_posts(
+    subreddit: str,
+    sort: str = Query("hot", description="Sort method: hot, new, top, rising"),
+    limit: int = Query(25, description="Number of posts to fetch"),
+    timeframe: str = Query("day", description="Timeframe: hour, day, week, month, year, all")
+):
+    """Get posts from a specific subreddit"""
+    endpoint = f"GET /api/reddit/subreddit/{subreddit}"
+    params = {"subreddit": subreddit, "sort": sort, "limit": limit, "timeframe": timeframe}
+    log_request(logger, endpoint, params)
+    
+    try:
+        result = await reddit_client.get_subreddit_posts(
+            subreddit=subreddit,
+            sort=sort,
+            limit=limit,
+            timeframe=timeframe
+        )
+
+        if result.get("success") and isinstance(result.get("posts"), list):
+            enriched_posts = []
+            for post in result["posts"]:
+                item = dict(post)
+                combined_text = " ".join(
+                    part.strip()
+                    for part in [item.get("title"), item.get("content")]
+                    if isinstance(part, str) and part.strip()
+                )
+                sentiment_score = round(float(_score_text(combined_text)), 4) if combined_text else 0.0
+                item["sentiment_score"] = sentiment_score
+                item["sentiment_label"] = classify_social_item_sentiment(sentiment_score)
+                enriched_posts.append(item)
+            result["posts"] = enriched_posts
+
+        log_response(logger, endpoint, result, success=result.get("success", True))
+        return result
+    except Exception as e:
+        log_error(logger, endpoint, e)
+        raise HTTPException(status_code=500, detail=str(e))
+    
+class RecordPurchaseBody(BaseModel):
+    provider: str
+    provider_payment_id: Optional[str] = None
+    amount_cents: int
+    currency: str = "USD"
+    influencer_code: Optional[str] = None
+
+# @app.post("/api/billing/record-purchase")
+# async def record_purchase(
+#     body: RecordPurchaseBody,
+#     user_id: str = Depends(user_auth.get_current_user_id_from_cookie),
+# ):
+#     """
+#     Call this AFTER payment success.
+#     Uses buyer's stored auth.users.influencer_code to decide commission.
+#     """
+#     buyer_user_id = int(user_id)
+
+#     result = influencer_commission.record_paid_order_and_apply_commission(
+#         buyer_user_id=buyer_user_id,
+#         provider=body.provider,
+#         provider_payment_id=body.provider_payment_id,
+#         amount_cents=body.amount_cents,
+#         currency=body.currency,
+#         commission_rate=0.30,
+#         activation_sales_threshold_cents=0,  # set e.g. 10000 for $100 threshold if you want
+#     )
+
+#     if not result.get("success"):
+#         raise HTTPException(status_code=400, detail=result.get("message", "Failed to record purchase"))
+
+#     return result
+@app.post("/api/billing/record-purchase")
+async def record_purchase(
+    body: RecordPurchaseBody,
+    user_id: str = Depends(user_auth.get_current_user_id_from_cookie),
+):
+    buyer_user_id = int(user_id)
+
+    # ---- OPTION A: FORCE A UNIQUE PAYMENT ID IN MOCK MODE ----
+    if USE_STRIPE_MOCK:
+        # if frontend didn't send one, generate one
+        if not body.provider_payment_id or body.provider_payment_id.strip() == "":
+            body.provider_payment_id = f"mock_pi_{int(time.time())}_{uuid.uuid4().hex[:8]}"
+    else:
+        # in real mode, don't allow blank ids (kills idempotency + tracing)
+        if not body.provider_payment_id or body.provider_payment_id.strip() == "":
+            raise HTTPException(status_code=400, detail="provider_payment_id is required")
+
+    # OPTIONAL: allow overriding influencer code in mock mode
+    # (Only do this if you WANT to test commission without a full auth flow)
+    if USE_STRIPE_MOCK and body.influencer_code:
+        influencer_commission.set_user_influencer_code_if_missing(
+            buyer_user_id=buyer_user_id,
+            influencer_code=body.influencer_code
+        )
+
+    result = influencer_commission.record_paid_order_and_apply_commission(
+        buyer_user_id=buyer_user_id,
+        provider=body.provider,
+        provider_payment_id=body.provider_payment_id,
+        amount_cents=body.amount_cents,
+        currency=body.currency,
+        commission_rate=0.30,
+        activation_sales_threshold_cents=0,
+    )
+
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("message", "Failed to record purchase"))
+
+    return result
+
+
+# ========== Government Module API Endpoints ==========
+
+@app.get("/api/government/global", tags=["Government"])
+async def get_government_global_sentiment():
+    """Get global macro sentiment (average of all 22 countries)."""
+    endpoint = "GET /api/government/global"
+    log_request(logger, endpoint, {})
+    try:
+        # Try mock data first
+        mock_file = Path(__file__).parent.parent / "_lib" / "mock_government_data.json"
+        if mock_file.exists():
+            try:
+                gov_client = get_government_client()
+                result = gov_client.get_global_sentiment()
+                if result.get("analyzed_at"):
+                    log_response(logger, endpoint, result, success=True)
+                    return result
+            except Exception:
+                pass
+            # Fallback to mock
+            with open(mock_file, "r") as f:
+                mock_data = json.load(f)
+            result = mock_data.get("global_sentiment", {})
+            result["is_mock"] = True
+            log_response(logger, endpoint, result, success=True)
+            return result
+        
+        gov_client = get_government_client()
+        result = gov_client.get_global_sentiment()
+        log_response(logger, endpoint, result, success=True)
+        return result
+    except Exception as e:
+        log_error(logger, endpoint, e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/government/countries", tags=["Government"])
+async def get_government_countries_sentiment():
+    """Get sentiment overview for all 22 countries."""
+    endpoint = "GET /api/government/countries"
+    log_request(logger, endpoint, {})
+    try:
+        # Try live data first
+        try:
+            gov_client = get_government_client()
+            result = gov_client.get_all_countries_sentiment()
+            if result.get("countries") and len(result["countries"]) > 0:
+                log_response(logger, endpoint, result, success=True)
+                return result
+        except Exception:
+            pass
+
+        # Fallback to mock data
+        mock_file = Path(__file__).parent.parent / "_lib" / "mock_government_data.json"
+        if mock_file.exists():
+            with open(mock_file, "r") as f:
+                mock_data = json.load(f)
+            result = mock_data.get("countries", {})
+            result["is_mock"] = True
+            log_response(logger, endpoint, result, success=True)
+            return result
+        
+        return {"success": True, "countries": [], "count": 0}
+    except Exception as e:
+        log_error(logger, endpoint, e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/government/country/{country_code}", tags=["Government"])
+async def get_government_country_detail(country_code: str):
+    """Get detailed metric-level sentiment for a specific country."""
+    endpoint = f"GET /api/government/country/{country_code}"
+    log_request(logger, endpoint, {"country_code": country_code})
+    try:
+        # Try live data first
+        try:
+            gov_client = get_government_client()
+            result = gov_client.get_country_detail(country_code)
+            if result.get("success") and result.get("metrics"):
+                log_response(logger, endpoint, result, success=True)
+                return result
+        except Exception:
+            pass
+
+        # Fallback to mock data
+        mock_file = Path(__file__).parent.parent / "_lib" / "mock_government_data.json"
+        if mock_file.exists():
+            with open(mock_file, "r") as f:
+                mock_data = json.load(f)
+            country_details = mock_data.get("country_details", {})
+            detail = country_details.get(country_code.upper())
+            if detail:
+                detail["is_mock"] = True
+                log_response(logger, endpoint, detail, success=True)
+                return detail
+            # If specific country not in mock, generate generic mock
+            return _generate_generic_country_mock(country_code.upper())
+        
+        return {"success": False, "error": "Country data not available"}
+    except Exception as e:
+        log_error(logger, endpoint, e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def _generate_generic_country_mock(country_code: str):
+    """Generate generic mock data for countries not in detailed mock file."""
+    import random
+    random.seed(hash(country_code))
+
+    metrics = []
+    metric_names = ["inflation", "interest_rate", "employment", "gdp", "pmi", "bond_yield_10y"]
+    metric_display = {
+        "inflation": {"unit": "%", "range": (0.5, 8.0)},
+        "interest_rate": {"unit": "%", "range": (0.5, 10.0)},
+        "employment": {"unit": "%", "range": (3.0, 12.0)},
+        "gdp": {"unit": "%", "range": (-1.0, 6.0)},
+        "pmi": {"unit": "index", "range": (45.0, 58.0)},
+        "bond_yield_10y": {"unit": "%", "range": (0.5, 7.0)},
+    }
+
+    for name in metric_names:
+        info = metric_display[name]
+        value = round(random.uniform(*info["range"]), 2)
+        prev_value = round(value + random.uniform(-1, 1), 2)
+
+        # Simple classification
+        if name == "gdp":
+            label = "positive" if value > 2 else ("negative" if value < 0 else "neutral")
+        elif name == "pmi":
+            label = "positive" if value > 50 else ("negative" if value < 45 else "neutral")
+        elif name == "employment":
+            label = "positive" if value < 5 else ("negative" if value > 8 else "neutral")
+        elif name == "inflation":
+            label = "positive" if 0.5 < value < 3 else ("negative" if value > 5 else "neutral")
+        else:
+            label = "positive" if 1 < value < 5 else ("negative" if value > 8 else "neutral")
+
+        score = {"positive": 0.5, "neutral": 0.0, "negative": -0.5}[label]
+
+        metrics.append({
+            "metric_name": name,
+            "sentiment_label": label,
+            "sentiment_score": score,
+            "analysis_note": f"{name.replace('_', ' ').title()} at {value}{info['unit']}",
+            "metric_value": value,
+            "previous_value": prev_value,
+            "unit": info["unit"],
+            "source": "mock_generated",
+            "data_date": "2026-02-22"
+        })
+
+    scores = [m["sentiment_score"] for m in metrics]
+    avg_score = sum(scores) / len(scores) if scores else 0
+    overall_label = "positive" if avg_score > 0.1 else ("negative" if avg_score < -0.1 else "neutral")
+
+    return {
+        "success": True,
+        "is_mock": True,
+        "country": {"code": country_code, "name": country_code, "region": "unknown"},
+        "overall": {
+            "score": round(avg_score, 4),
+            "label": overall_label,
+            "positive_count": sum(1 for m in metrics if m["sentiment_label"] == "positive"),
+            "neutral_count": sum(1 for m in metrics if m["sentiment_label"] == "neutral"),
+            "negative_count": sum(1 for m in metrics if m["sentiment_label"] == "negative"),
+            "analyzed_at": "2026-02-22T10:00:00"
+        },
+        "metrics": metrics
+    }

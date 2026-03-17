@@ -1,0 +1,7 @@
+capstone/
+__pycache__/
+*.pyc
+*.log
+*.ini
+*.md
+_lib/*.py
