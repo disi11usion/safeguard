@@ -38,8 +38,6 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8000:8000"
-      #for python debug
-      - "5678:5678"
     env_file:
       - .env
     environment:
@@ -48,7 +46,7 @@ services:
       - ./backend:/app
       - ./data:/app/data:ro
 
-  backend-debbug:
+  backend-debug:
     build:
       context: ./backend
       dockerfile: Dockerfile
