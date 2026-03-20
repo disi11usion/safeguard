@@ -8,10 +8,12 @@ from typing import Dict, Any
 import smtplib
 from email.message import EmailMessage
 
+import psycopg2
 
-_OTP_STORE: Dict[str, Dict[str, Any]] = {}
-_VERIFIED_EMAILS: Dict[str, float] = {}
 
+# ---------------------------------------------------------------------------
+# Helpers (unchanged)
+# ---------------------------------------------------------------------------
 
 def _now() -> float:
     return time.time()
@@ -40,6 +42,21 @@ def _hash_code(email: str, code: str) -> str:
 def _generate_code(length: int = 6) -> str:
     return "".join(secrets.choice("0123456789") for _ in range(length))
 
+
+# ---------------------------------------------------------------------------
+# Database connection
+# ---------------------------------------------------------------------------
+
+def _get_conn():
+    db_url = os.getenv("DATABASE_URL")
+    if not db_url:
+        raise RuntimeError("DATABASE_URL not set")
+    return psycopg2.connect(db_url)
+
+
+# ---------------------------------------------------------------------------
+# SMTP (unchanged)
+# ---------------------------------------------------------------------------
 
 def _send_via_smtp(to_email: str, code: str) -> None:
     host = os.getenv("SMTP_HOST")
@@ -98,33 +115,60 @@ def _send_via_smtp_with_retry(to_email: str, code: str) -> None:
         raise last_exc
 
 
+# ---------------------------------------------------------------------------
+# Public API  (same function signatures, storage changed from dict to DB)
+# ---------------------------------------------------------------------------
+
 def send_otp(email: str) -> Dict[str, Any]:
     ttl_seconds = _get_int_env("OTP_TTL_SECONDS", 300)
     min_interval = _get_int_env("OTP_MIN_INTERVAL_SECONDS", 60)
     max_attempts = _get_int_env("OTP_MAX_ATTEMPTS", 5)
 
-    entry = _OTP_STORE.get(email)
-    now = _now()
+    conn = _get_conn()
+    try:
+        with conn.cursor() as cur:
+            # Check rate limit
+            cur.execute(
+                "SELECT last_sent_at FROM auth.otp_codes WHERE email = %s",
+                (email.lower(),),
+            )
+            row = cur.fetchone()
+            if row and row[0]:
+                last_sent_ts = row[0].timestamp()
+                elapsed = _now() - last_sent_ts
+                if elapsed < min_interval:
+                    retry_in = int(min_interval - elapsed)
+                    return {"success": False, "message": f"Please wait {retry_in}s before requesting another code."}
 
-    if entry and now - entry.get("last_sent_at", 0) < min_interval:
-        retry_in = int(min_interval - (now - entry.get("last_sent_at", 0)))
-        return {"success": False, "message": f"Please wait {retry_in}s before requesting another code."}
+            # Generate OTP
+            code = _generate_code()
+            code_hash = _hash_code(email, code)
 
-    code = _generate_code()
-    code_hash = _hash_code(email, code)
+            # Upsert into DB (replace any existing OTP for this email)
+            cur.execute(
+                """
+                INSERT INTO auth.otp_codes (email, code_hash, expires_at, attempts_left, last_sent_at, verified)
+                VALUES (%s, %s, now() + interval '%s seconds', %s, now(), FALSE)
+                ON CONFLICT (email) DO UPDATE SET
+                    code_hash     = EXCLUDED.code_hash,
+                    expires_at    = EXCLUDED.expires_at,
+                    attempts_left = EXCLUDED.attempts_left,
+                    last_sent_at  = EXCLUDED.last_sent_at,
+                    verified      = FALSE
+                """,
+                (email.lower(), code_hash, ttl_seconds, max_attempts),
+            )
+            conn.commit()
+    finally:
+        conn.close()
 
-    _OTP_STORE[email] = {
-        "code_hash": code_hash,
-        "expires_at": now + ttl_seconds,
-        "attempts_left": max_attempts,
-        "last_sent_at": now,
-    }
-
+    # Dev mode: return code directly without sending email
     dev_mode = _get_bool_env("OTP_DEV_MODE", False)
     if dev_mode:
         print(f"[OTP_DEV_MODE] OTP for {email}: {code}")
         return {"success": True, "message": "OTP generated (dev mode).", "dev_otp": code}
 
+    # Send email
     try:
         if os.getenv("SMTP_HOST"):
             _send_via_smtp_with_retry(email, code)
@@ -136,42 +180,97 @@ def send_otp(email: str) -> Dict[str, Any]:
     return {"success": True, "message": "OTP sent successfully."}
 
 
+def verify_otp(email: str, code: str) -> Dict[str, Any]:
+    conn = _get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT code_hash, expires_at, attempts_left FROM auth.otp_codes WHERE email = %s",
+                (email.lower(),),
+            )
+            row = cur.fetchone()
+            if not row:
+                return {"success": False, "message": "OTP not found or expired."}
+
+            code_hash, expires_at, attempts_left = row
+
+            # Check expiry
+            if _now() > expires_at.timestamp():
+                cur.execute("DELETE FROM auth.otp_codes WHERE email = %s", (email.lower(),))
+                conn.commit()
+                return {"success": False, "message": "OTP expired. Please request a new code."}
+
+            # Check attempts
+            if attempts_left <= 0:
+                cur.execute("DELETE FROM auth.otp_codes WHERE email = %s", (email.lower(),))
+                conn.commit()
+                return {"success": False, "message": "Too many attempts. Please request a new code."}
+
+            # Check code
+            if _hash_code(email, code) != code_hash:
+                cur.execute(
+                    "UPDATE auth.otp_codes SET attempts_left = attempts_left - 1 WHERE email = %s",
+                    (email.lower(),),
+                )
+                conn.commit()
+                return {"success": False, "message": "Invalid code."}
+
+            # Success - delete the OTP row
+            cur.execute("DELETE FROM auth.otp_codes WHERE email = %s", (email.lower(),))
+            conn.commit()
+            return {"success": True, "message": "OTP verified."}
+    finally:
+        conn.close()
+
+
 def mark_verified(email: str) -> None:
     ttl_seconds = _get_int_env("OTP_TTL_SECONDS", 300)
-    _VERIFIED_EMAILS[email.lower()] = _now() + ttl_seconds
+    conn = _get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO auth.otp_codes (email, code_hash, expires_at, attempts_left, verified)
+                VALUES (%s, '', now() + interval '%s seconds', 0, TRUE)
+                ON CONFLICT (email) DO UPDATE SET
+                    verified   = TRUE,
+                    expires_at = now() + interval '%s seconds'
+                """,
+                (email.lower(), ttl_seconds, ttl_seconds),
+            )
+            conn.commit()
+    finally:
+        conn.close()
 
 
 def is_verified(email: str) -> bool:
-    expires_at = _VERIFIED_EMAILS.get(email.lower())
-    if not expires_at:
-        return False
-    if _now() > expires_at:
-        _VERIFIED_EMAILS.pop(email.lower(), None)
-        return False
-    return True
+    conn = _get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT verified, expires_at FROM auth.otp_codes WHERE email = %s",
+                (email.lower(),),
+            )
+            row = cur.fetchone()
+            if not row:
+                return False
+            verified, expires_at = row
+            if not verified:
+                return False
+            if _now() > expires_at.timestamp():
+                cur.execute("DELETE FROM auth.otp_codes WHERE email = %s", (email.lower(),))
+                conn.commit()
+                return False
+            return True
+    finally:
+        conn.close()
 
 
 def clear_verified(email: str) -> None:
-    _VERIFIED_EMAILS.pop(email.lower(), None)
-
-
-def verify_otp(email: str, code: str) -> Dict[str, Any]:
-    entry = _OTP_STORE.get(email)
-    if not entry:
-        return {"success": False, "message": "OTP not found or expired."}
-
-    now = _now()
-    if now > entry.get("expires_at", 0):
-        _OTP_STORE.pop(email, None)
-        return {"success": False, "message": "OTP expired. Please request a new code."}
-
-    if entry.get("attempts_left", 0) <= 0:
-        _OTP_STORE.pop(email, None)
-        return {"success": False, "message": "Too many attempts. Please request a new code."}
-
-    if _hash_code(email, code) != entry.get("code_hash"):
-        entry["attempts_left"] = entry.get("attempts_left", 0) - 1
-        return {"success": False, "message": "Invalid code."}
-
-    _OTP_STORE.pop(email, None)
-    return {"success": True, "message": "OTP verified."}
+    conn = _get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM auth.otp_codes WHERE email = %s", (email.lower(),))
+            conn.commit()
+    finally:
+        conn.close()

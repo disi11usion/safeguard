@@ -376,6 +376,7 @@ async def verify_otp(request_data: models.OtpVerifyRequest):
             "username": username,
             "iss": OTP_IDP_ISSUER,
             "aud": OTP_IDP_AUDIENCE,
+            "exp": datetime.now(tz=None) + timedelta(minutes=5),
         }
 
         idp_token = jwt.encode(payload, OTP_IDP_SECRET, algorithm=os.getenv("ALGORITHM", "HS256"))

@@ -115,6 +115,7 @@ def run_schema(conn):
             "alter_20260117_influencer_admin.sql",
             "alter_20260216_referral_tracking.sql",
             "alter_20260216_influencer_codes.sql",
+            "alter_otp_persistence.sql",
         ]
         for update_name in update_files:
             update_path = schema_dir / update_name
@@ -138,6 +139,7 @@ def run_schema(conn):
         "alter_20260117_influencer_admin.sql",
         "alter_20260216_referral_tracking.sql",
         "alter_20260216_influencer_codes.sql",
+        "alter_otp_persistence.sql",
         "create_hypertables.sql",
         "archive_schema.sql",
         "create_index.sql",
