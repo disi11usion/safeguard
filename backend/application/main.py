@@ -31,6 +31,10 @@ from application.clients.social_sentiment import SocialSentimentClient, _score_t
 from application.clients.reddit import RedditAPIClient
 from application.clients.government_client import get_government_client
 from database.scripts import data_request
+from application.clients.price_cache import (
+    historical_cache, indicators_cache, top_list_cache, stock_cache,
+    make_cache_key, request_coalescer,
+)
 
 
 from application.services.market_shake import MarketShakeService
@@ -196,6 +200,17 @@ async def root():
     return response
 
 
+@app.get("/api/cache/stats")
+async def get_cache_stats():
+    return {
+        "historical_cache": historical_cache.stats(),
+        "indicators_cache": indicators_cache.stats(),
+        "top_list_cache": top_list_cache.stats(),
+        "stock_cache": stock_cache.stats(),
+        "request_coalescer": request_coalescer.stats(),
+    }
+
+
 @app.get("/api/market-shake/summary")
 async def get_market_shake_summary():
     endpoint = "GET /api/market-shake/summary"
@@ -319,8 +334,13 @@ async def get_stock_data(symbol: str, start_date: str, end_date: str):
     log_request(logger, endpoint, params)
     
     try:
-        data = await polygon_client.get_single_stock_data(symbol, start_date, end_date)
-        response = {"symbol": symbol, "data": data}
+        cache_key = make_cache_key("stock", symbol, start_date, end_date)
+
+        async def _fetch():
+            data = await polygon_client.get_single_stock_data(symbol, start_date, end_date)
+            return {"symbol": symbol, "data": data}
+
+        response = await request_coalescer.fetch_or_wait(cache_key, stock_cache, _fetch)
         log_response(logger, endpoint, response)
         return response
     except Exception as e:
@@ -345,15 +365,19 @@ async def get_unified_historical_data(
     try:
         if market not in ["crypto", "stocks", "forex"]:
             raise HTTPException(status_code=400, detail="Invalid market type. Must be 'crypto', 'stocks', or 'forex'")
-        
-        result = await polygon_client.get_unified_historical_data(ticker, start_date, end_date, market, timespan)
+
+        cache_key = make_cache_key("historical", ticker, start_date, end_date, market, timespan)
+
+        async def _fetch():
+            r = await polygon_client.get_unified_historical_data(ticker, start_date, end_date, market, timespan)
+            if not r.get("success"):
+                raise HTTPException(status_code=404, detail=r.get("error", "Failed to fetch historical data"))
+            return r
+
+        result = await request_coalescer.fetch_or_wait(cache_key, historical_cache, _fetch)
         log_response(logger, endpoint, result, success=result.get("success", False))
-        
-        if not result.get("success"):
-            raise HTTPException(status_code=404, detail=result.get("error", "Failed to fetch historical data"))
-        
         return result
-    
+
     except HTTPException:
         raise
     except Exception as e:
@@ -509,20 +533,18 @@ async def get_market_summary_with_technical_indicators(
         
         # Futures use forex endpoint
         api_market = "forex" if market == "futures" else market
-        
-        # Get market summary with indicators
-        result = await polygon_client.get_market_summary_with_indicators(
-            ticker=ticker,
-            market=api_market,
-            days=days
-        )
-        
-        if not result.get('success'):
-            raise HTTPException(
-                status_code=404,
-                detail=result.get('error', 'Failed to fetch market data')
+
+        cache_key = make_cache_key("indicators", ticker, market, days)
+
+        async def _fetch():
+            r = await polygon_client.get_market_summary_with_indicators(
+                ticker=ticker, market=api_market, days=days
             )
-        
+            if not r.get('success'):
+                raise HTTPException(status_code=404, detail=r.get('error', 'Failed to fetch market data'))
+            return r
+
+        result = await request_coalescer.fetch_or_wait(cache_key, indicators_cache, _fetch)
         log_response(logger, endpoint, result)
         return result
     
@@ -545,12 +567,17 @@ async def get_comprehensive_top_list(
             raise HTTPException(status_code=400, detail=f"Invalid market type. Must be one of: {', '.join(valid_markets)}")
         
         if market in ["crypto", "forex", "stocks"]:
-            market_mapping = {"crypto": "crypto", "forex": "fx", "stocks": "stocks"}
-            api_market = market if USING_MOCK_DATA else market_mapping[market]
-            result = await polygon_client.get_comprehensive_market_data(api_market, limit=50)
+            cache_key = make_cache_key("top_list", market)
+
+            async def _fetch():
+                market_mapping = {"crypto": "crypto", "forex": "fx", "stocks": "stocks"}
+                api_market = market if USING_MOCK_DATA else market_mapping[market]
+                return await polygon_client.get_comprehensive_market_data(api_market, limit=50)
+
+            result = await request_coalescer.fetch_or_wait(cache_key, top_list_cache, _fetch)
             log_response(logger, endpoint, {"count": result.get("count", 0), "mock": USING_MOCK_DATA}, success=result.get("success", False))
             return result
-        
+
         elif market == "futures":
             if USING_MOCK_DATA:
                 result = await polygon_client.get_comprehensive_market_data(market, limit=50)
