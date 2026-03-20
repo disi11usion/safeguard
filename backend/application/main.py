@@ -10,11 +10,10 @@ from datetime import datetime, timedelta, timezone
 import asyncio
 import re
 from presentation import routes
-import psycopg2
-from psycopg2.extras import RealDictCursor
 import httpx
 from database.scripts import influencer_commission
 from database.scripts import user_auth
+from database.utils.db_pool import get_db_connection
 import time
 import uuid
 import os
@@ -153,7 +152,7 @@ def classify_social_item_sentiment(score: float) -> str:
 def get_db_conn():
     if not DATABASE_URL:
         raise RuntimeError("DATABASE_URL not set")
-    return psycopg2.connect(DATABASE_URL)
+    return get_db_connection()
 
 DISCLAIMER_ACCEPTANCES_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS disclaimer_acceptances (

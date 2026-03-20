@@ -38,6 +38,20 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - MARKET_SHAKE_CSV_DIR=/app/data/csv
+    volumes:
+      - ./backend:/app
+      - ./data:/app/data:ro
+
+  backend-debug:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
       #for python debug
       - "5678:5678"
     env_file:
@@ -47,6 +61,15 @@ services:
     volumes:
       - ./backend:/app
       - ./data:/app/data:ro
+    command: >
+      python -m debugpy
+      --listen 0.0.0.0:5678
+      --wait-for-client
+      -m uvicorn application.main:app
+      --host 0.0.0.0
+      --port 8000
+
+
 
   frontend:
     build:
@@ -67,6 +90,23 @@ services:
       - backend
     command: ["/bin/sh", "-lc", "if [ ! -x node_modules/.bin/vite ]; then npm install; fi; npm run dev -- --host 0.0.0.0"]
 
+  frontend-debug:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - CHOKIDAR_USEPOLLING=true
+      - WATCHPACK_POLLING=true
+      - VITE_API_BASE=http://localhost:8000
+      - VITE_STRIPE_PUBLISHABLE_KEY=${STRIPE_PUBLISHABLE_KEY}
+      - VITE_PAYPAL_CLIENT_ID=${PAYPAL_CLIENT_ID}
+    command: ["/bin/sh", "-lc", "if [ ! -x node_modules/.bin/vite ]; then npm install; fi; npm run dev -- --host 0.0.0.0"]
+    
   data:
     build:
       context: .

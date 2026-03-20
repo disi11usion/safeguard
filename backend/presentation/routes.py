@@ -31,6 +31,7 @@ import hashlib
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from datetime import datetime, timedelta
+from database.utils.db_pool import get_db_connection
 
 from jose import jwt
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -48,10 +49,7 @@ router = APIRouter()
 load_dotenv()
 
 def _get_db_conn():
-    db_url = os.getenv("DATABASE_URL")
-    if not db_url:
-        raise RuntimeError("DATABASE_URL not set")
-    return psycopg2.connect(db_url)
+    return get_db_connection()
 
 
 @router.post("/disclaimer/accept", tags=["Legal"])
@@ -95,7 +93,7 @@ def _ensure_admin(current_user: dict) -> None:
     conn = None
     cursor = None
     try:
-        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        conn = _get_db_conn()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         cursor.execute(
             """
@@ -556,7 +554,7 @@ async def get_user_preference_assets(
         access_token = user_auth.get_access_token_from_request(request)
         user_id = user_auth.get_user_id_from_token(access_token)
 
-        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        conn = _get_db_conn()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
 
         query = """
@@ -784,7 +782,7 @@ from database.scripts import payment_operations  # type: ignore
 @router.get("/plans", tags=["Payments"])
 async def get_plans():
     try:
-        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        conn = _get_db_conn()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
 
         cursor.execute(
@@ -1052,7 +1050,7 @@ async def create_payment_intent(
         except Exception as e:
             raise HTTPException(status_code=401, detail=f"Token verification failed: {str(e)}")
 
-        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        conn = _get_db_conn()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
 
         cursor.execute(
@@ -1181,7 +1179,7 @@ async def confirm_payment(
         if not plan_key:
             raise HTTPException(status_code=400, detail="Missing plan_key in payment metadata")
 
-        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        conn = _get_db_conn()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
 
         cursor.execute(
@@ -1278,7 +1276,7 @@ async def confirm_payment(
 async def get_payment_methods_stats(current_user: dict = Depends(get_current_user_from_bearer)):
     _ensure_admin(current_user)
     try:
-        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        conn = _get_db_conn()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
 
         cursor.execute(
@@ -1327,7 +1325,7 @@ async def admin_list_users(
     conn = None
     cursor = None
     try:
-        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        conn = _get_db_conn()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
 
         # Prefer a query that includes referral columns if they exist.
@@ -1446,7 +1444,7 @@ async def admin_create_user(
     conn = None
     cursor = None
     try:
-        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        conn = _get_db_conn()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         columns = _get_table_columns(conn, "auth", "users")
 
@@ -1559,7 +1557,7 @@ async def admin_update_user(
     conn = None
     cursor = None
     try:
-        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        conn = _get_db_conn()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         columns = _get_table_columns(conn, "auth", "users")
 
@@ -1681,7 +1679,7 @@ async def admin_delete_user(
     conn = None
     cursor = None
     try:
-        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        conn = _get_db_conn()
         cursor = conn.cursor()
         cursor.execute("DELETE FROM auth.users WHERE user_id = %s", (user_id,))
         if cursor.rowcount == 0:
@@ -1708,7 +1706,7 @@ async def admin_list_influencers(
     conn = None
     cursor = None
     try:
-        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        conn = _get_db_conn()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
 
         cursor.execute(
@@ -1773,7 +1771,7 @@ async def admin_create_influencer(
     conn = None
     cursor = None
     try:
-        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        conn = _get_db_conn()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
 
         cursor.execute(
@@ -1836,7 +1834,7 @@ async def admin_update_influencer(
     conn = None
     cursor = None
     try:
-        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        conn = _get_db_conn()
         cursor = conn.cursor()
 
         if updates:
@@ -1885,7 +1883,7 @@ async def admin_delete_influencer(
     conn = None
     cursor = None
     try:
-        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        conn = _get_db_conn()
         cursor = conn.cursor()
         cursor.execute(
             """
@@ -1936,7 +1934,7 @@ async def admin_list_influencer_codes(current_user: dict = Depends(get_current_u
     conn = None
     cursor = None
     try:
-        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        conn = _get_db_conn()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
 
         cursor.execute(
@@ -1979,7 +1977,7 @@ async def admin_influencer_codes_analytics(
     conn = None
     cursor = None
     try:
-        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        conn = _get_db_conn()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
 
         cursor.execute(
@@ -2088,7 +2086,7 @@ async def admin_revenue_report(
     conn = None
     cursor = None
     try:
-        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        conn = _get_db_conn()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         tx_columns = _get_table_columns(conn, "payments", "stripe_transactions")
         tx_pk_col = "id" if "id" in tx_columns else ("transaction_id" if "transaction_id" in tx_columns else None)
@@ -2271,7 +2269,7 @@ async def validate_influencer_code(code: str = Query(..., min_length=1)):
     conn = None
     cursor = None
     try:
-        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        conn = _get_db_conn()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         cursor.execute(
             """
