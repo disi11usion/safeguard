@@ -8,8 +8,7 @@ from typing import Dict, Any
 import smtplib
 from email.message import EmailMessage
 
-import psycopg2
-
+from database.utils.db_pool import get_db_connection
 
 # ---------------------------------------------------------------------------
 # Helpers (unchanged)
@@ -48,10 +47,7 @@ def _generate_code(length: int = 6) -> str:
 # ---------------------------------------------------------------------------
 
 def _get_conn():
-    db_url = os.getenv("DATABASE_URL")
-    if not db_url:
-        raise RuntimeError("DATABASE_URL not set")
-    return psycopg2.connect(db_url)
+    return get_db_connection() 
 
 
 # ---------------------------------------------------------------------------
