@@ -4,6 +4,7 @@
 # Date: 26-06-2025
 """
 
+from database.utils.db_pool import get_db_connection
 import os
 import psycopg2
 from dotenv import load_dotenv
@@ -21,7 +22,7 @@ from psycopg2.extras import Json
 load_dotenv()
 
 def _get_conn(autocommit=True):
-    conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+    conn = get_db_connection()
     if autocommit:
         conn.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
     return conn
@@ -107,7 +108,7 @@ def log_ingestion_job(source, start_time, status='started',records_processed=0):
     conn = None
     cursor = None
     try:
-        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        conn = get_db_connection()
         cursor = conn.cursor()
 
         # Set the timezone to UTC
@@ -165,7 +166,7 @@ def update_ingestion_job(job_id, end_time=None, record_count=None, status='compl
     conn = None
     cursor = None
     try:
-        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        conn = get_db_connection()
         cursor = conn.cursor()
 
         fields = []
@@ -218,7 +219,7 @@ def historic_prices_ingestion(source_id, job_id, records):
     cursor = None
     
     try:
-        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        conn = get_db_connection()
         conn.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
         conn.notices = []
         cursor = conn.cursor()
@@ -276,7 +277,7 @@ def realtime_prices_ingestion(source_id, job_id, records):
     conn = None
     cursor = None
     try:
-        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        conn = get_db_connection()
         conn.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
         conn.notices = []
         cursor = conn.cursor()
@@ -409,7 +410,7 @@ def news_ingestion(source_id, job_id, records):
     cursor = None
     record_count = 0
     try:
-        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        conn = get_db_connection()
         conn.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
         conn.notices = []
         cursor = conn.cursor()
@@ -477,7 +478,7 @@ def update_crypto_ranks(data):
     conn = None
     cursor = None
     try:
-        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        conn = get_db_connection()
         cursor = conn.cursor()
 
          # Set the timezone to UTC
@@ -576,7 +577,7 @@ def clean_historic_prices(historic_records, monthly_records):
     conn = None
     cursor = None
     try:
-        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        conn = get_db_connection()
         conn.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
         conn.notices = []
         cursor = conn.cursor()
@@ -711,7 +712,7 @@ def clean_social_ingestion(source_id, job_id, records):
     cursor = None
     record_count = 0
     try:
-        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        conn = get_db_connection()
         conn.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
         conn.notices = []
         cursor = conn.cursor()
@@ -784,7 +785,7 @@ def clean_news_ingestion(source_id, job_id, records):
     cursor = None
     record_count = 0
     try:
-        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        conn = get_db_connection()
         conn.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
         conn.notices = []
         cursor = conn.cursor()
@@ -852,7 +853,7 @@ def insert_finbert_coin_sentiment(data):
     conn = None
     cursor = None
     try:
-        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        conn = get_db_connection()
         conn.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
         conn.notices = []
         cursor = conn.cursor()
@@ -902,7 +903,7 @@ def insert_market_level_sentiment(data):
     conn = None
     cursor = None
     try:
-        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        conn = get_db_connection()
         conn.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
         conn.notices = []
         cursor = conn.cursor()
@@ -952,7 +953,7 @@ def insert_forecast(data):
     conn = None
     cursor = None
     try:
-        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        conn = get_db_connection()
         cursor = conn.cursor()
 
          # Set the timezone to UTC

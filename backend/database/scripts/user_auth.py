@@ -1,4 +1,5 @@
 
+from database.utils.db_pool import get_db_connection
 """
 #  file: user_auth.py
 # description: This script provides functions for user authentication,
@@ -228,7 +229,7 @@ def user_signup(full_name, username, email, password, influencer_code: Optional[
     conn = None
     cursor = None
     try:
-        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        conn = get_db_connection()
         cursor = conn.cursor()
 
         print("Setting timezone to UTC...")
@@ -323,7 +324,7 @@ def user_login(email, password, influencer_code=None):
     conn = None
     cursor = None
     try:
-        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        conn = get_db_connection()
         cursor = conn.cursor()
 
         print("Setting timezone to UTC...")
@@ -447,7 +448,7 @@ def user_update(access_token, full_name=None, username=None, email=None, passwor
     conn = None
     cursor = None
     try:
-        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        conn = get_db_connection()
         cursor = conn.cursor()
 
         user_id = get_user_id_from_token(access_token)
@@ -505,7 +506,7 @@ def get_user_details(access_token):
     conn = None
     cursor = None
     try:
-        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        conn = get_db_connection()
         cursor = conn.cursor()
 
         user_id = get_user_id_from_token(access_token)
@@ -585,7 +586,7 @@ def get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
     conn = None
     cursor = None
     try:
-        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        conn = get_db_connection()
         cursor = conn.cursor()
 
         cursor.execute(

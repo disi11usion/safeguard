@@ -6,6 +6,7 @@
 # Date: 01-07-2025
 """
 
+from database.utils.db_pool import get_db_connection
 import os
 from time import timezone
 import psycopg2
@@ -18,7 +19,7 @@ import calendar
 load_dotenv()
 
 def _get_conn():
-    return psycopg2.connect(os.getenv("DATABASE_URL"))
+    return get_db_connection()
 
 def _df_from_cursor(cursor):
     rows = cursor.fetchall()
@@ -32,7 +33,7 @@ def get_crypto_data(exchange_name="binance"):
     conn = None
     cursor = None
     try:
-        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        conn = get_db_connection()
         cursor = conn.cursor()
 
         # Fetch the all crypto details by market cap
@@ -85,7 +86,7 @@ def get_raw_prices():
     conn = None
     cursor = None
     try:
-        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        conn = get_db_connection()
         cursor = conn.cursor()
 
         cursor.execute("""
@@ -166,7 +167,7 @@ def get_raw_social(job_id, source_id):
     conn = None
     cursor = None
     try:
-        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        conn = get_db_connection()
         cursor = conn.cursor()
 
         # Fetch raw social posts for the given job_id
@@ -215,7 +216,7 @@ def get_raw_news(job_id, source_id):
     conn = None
     cursor = None
     try:
-        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        conn = get_db_connection()
         cursor = conn.cursor()
 
         # Fetch raw news for the given job_id
@@ -263,7 +264,7 @@ def get_curr_prices(exchange="Binance"):
     conn = None
     cursor = None
     try:
-        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        conn = get_db_connection()
         cursor = conn.cursor()
 
         # Helper functions
@@ -456,7 +457,7 @@ def get_curr_news(last_day=False):
     conn = None
     cursor = None
     try:
-        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        conn = get_db_connection()
         cursor = conn.cursor()
 
         interval = "1 day" if last_day else "1 hour"
@@ -518,7 +519,7 @@ def get_curr_social(last_day=False):
     conn = None
     cursor = None
     try:
-        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        conn = get_db_connection()
         cursor = conn.cursor()
 
         interval = "1 day" if last_day else "1 hour"
@@ -605,7 +606,7 @@ def get_last_historic_run():
     conn = None
     cursor = None
     try:
-        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        conn = get_db_connection()
         cursor = conn.cursor()
 
         # SQL query to get the last historic run
@@ -667,7 +668,7 @@ def get_prices_news(start_date=None, end_date=None):
     conn = None
     cursor = None
     try:
-        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        conn = get_db_connection()
         cursor = conn.cursor()
         
         # Update start and end dates if not passed.
@@ -773,7 +774,7 @@ def get_news_for_training(last_hour=False):
     conn = None
     cursor = None
     try:
-        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        conn = get_db_connection()
         cursor = conn.cursor()
 
         if last_hour:
@@ -854,7 +855,7 @@ def get_prices_for_training(last_hour=False):
     conn = None
     cursor = None
     try:
-        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        conn = get_db_connection()
         cursor = conn.cursor()
 
         if last_hour:
@@ -938,7 +939,7 @@ def get_sentiment():
     conn = None
     cursor = None
     try:
-        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        conn = get_db_connection()
         cursor = conn.cursor()
 
         # Get the latest sentiment for each crypto_id
@@ -1007,7 +1008,7 @@ def get_forecast(user_id):
     conn = None
     cursor = None
     try:
-        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        conn = get_db_connection()
         cursor = conn.cursor()
 
         # Get the latest forecast for the given user

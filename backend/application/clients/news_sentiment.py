@@ -1,3 +1,4 @@
+from database.utils.db_pool import get_db_connection
 import os
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
@@ -188,7 +189,7 @@ class NewsSentimentClient:
         conn = None
         cursor = None
         try:
-            conn = psycopg2.connect(database_url)
+            conn = get_db_connection()
             cursor = conn.cursor(cursor_factory=RealDictCursor)
             cursor.execute(sql, tuple(params))
             rows = cursor.fetchall()

@@ -1,3 +1,4 @@
+from database.utils.db_pool import get_db_connection
 #!/usr/bin/env python3
 """
 Script to extend the cryptocurrencies table to support all asset types
@@ -31,7 +32,7 @@ def run_migration():
             sql_script = f.read()
         
         print("Connecting to database...")
-        conn = psycopg2.connect(db_url)
+        conn = get_db_connection()
         conn.autocommit = False
         cursor = conn.cursor()
         

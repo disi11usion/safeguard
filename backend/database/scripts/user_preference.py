@@ -5,6 +5,7 @@
 # Date: 26-06-2025
 """
 
+from database.utils.db_pool import get_db_connection
 import os
 import re
 import json
@@ -17,7 +18,7 @@ from .user_auth import get_user_id_from_token
 # Load environment variables from .env file
 load_dotenv()
 def _open_conn():
-    conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+    conn = get_db_connection()
     with conn.cursor() as cur:
         cur.execute("SET TIME ZONE 'UTC';")
     conn.commit()
@@ -254,7 +255,7 @@ def get_user_preferences(access_token):
     conn = None
     cursor = None
     try:
-        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        conn = get_db_connection()
         cursor = conn.cursor()
 
         user_id = get_user_id_from_token(access_token)

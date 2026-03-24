@@ -1,3 +1,4 @@
+from database.utils.db_pool import get_db_connection
 # """
 # 支付相关的数据库操作脚本
 # 类似 user_auth.py 和 data_ingestion.py 的设计模式
@@ -21,7 +22,7 @@
 
 # def _get_conn():
 #     """获取数据库连接"""
-#     return psycopg2.connect(os.getenv("DATABASE_URL"))
+#     return get_db_connection()
 
 
 # # ============================================================================
@@ -855,7 +856,7 @@ DEFAULT_COMMISSION_RATE = 0.30
 
 def _get_conn():
     """Get database connection"""
-    return psycopg2.connect(os.getenv("DATABASE_URL"))
+    return get_db_connection()
 
 
 # ============================================================================

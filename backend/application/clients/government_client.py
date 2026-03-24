@@ -8,20 +8,20 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from typing import Dict, Any, List, Optional
 from datetime import datetime
-
+from database.utils.db_pool import get_db_connection
 
 class GovernmentClient:
     def __init__(self):
         self.db_url = os.getenv("DATABASE_URL")
 
     def _get_conn(self):
-        return psycopg2.connect(self.db_url, cursor_factory=RealDictCursor)
+        return get_db_connection()
 
     def _safe_query(self, query: str, params: tuple = None) -> List[dict]:
         """Execute a query and return results as list of dicts."""
         try:
             conn = self._get_conn()
-            cursor = conn.cursor()
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
             cursor.execute(query, params)
             results = cursor.fetchall()
             cursor.close()

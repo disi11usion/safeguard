@@ -4,6 +4,7 @@
 # Date: 02-08-2025
 """
 
+from database.utils.db_pool import get_db_connection
 import psycopg2
 import os
 
@@ -31,7 +32,7 @@ TX_LEG_TABLES = {
 }
 
 def _get_conn():
-    return psycopg2.connect(os.getenv("DATABASE_URL"))
+    return get_db_connection()
 
 def _fetchone_bool(cur, query, params = None):
     cur.execute(query, params or ())
@@ -82,7 +83,7 @@ def archive_and_compress():
     conn = None
     cursor = None
     try:
-        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        conn = get_db_connection()
         cursor = conn.cursor()
         #to find out the retention
         retention_map = {src: (arch, col, days) for src, arch, col, days in ARCHIVAL_RULES}

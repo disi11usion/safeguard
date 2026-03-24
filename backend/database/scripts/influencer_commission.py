@@ -1,3 +1,4 @@
+from database.utils.db_pool import get_db_connection
 import os
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -8,7 +9,7 @@ def _conn():
     db = os.getenv("DATABASE_URL")
     if not db:
         raise RuntimeError("DATABASE_URL missing")
-    return psycopg2.connect(db)
+    return get_db_connection()
 
 def record_paid_order_and_apply_commission(
     *,
