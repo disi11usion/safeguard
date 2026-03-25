@@ -123,9 +123,9 @@ def send_otp(email: str) -> Dict[str, Any]:
     conn = _get_conn()
     try:
         with conn.cursor() as cur:
-            # Check rate limit
+            # Check rate limit (FOR UPDATE locks the row to prevent concurrent bypasses)
             cur.execute(
-                "SELECT last_sent_at FROM auth.otp_codes WHERE email = %s",
+                "SELECT last_sent_at FROM auth.otp_codes WHERE email = %s FOR UPDATE",
                 (email.lower(),),
             )
             row = cur.fetchone()
@@ -180,8 +180,9 @@ def verify_otp(email: str, code: str) -> Dict[str, Any]:
     conn = _get_conn()
     try:
         with conn.cursor() as cur:
+            # FOR UPDATE locks the row to prevent concurrent race conditions
             cur.execute(
-                "SELECT code_hash, expires_at, attempts_left FROM auth.otp_codes WHERE email = %s",
+                "SELECT code_hash, expires_at, attempts_left FROM auth.otp_codes WHERE email = %s FOR UPDATE",
                 (email.lower(),),
             )
             row = cur.fetchone()
@@ -243,8 +244,9 @@ def is_verified(email: str) -> bool:
     conn = _get_conn()
     try:
         with conn.cursor() as cur:
+            # FOR UPDATE locks the row to prevent concurrent race conditions
             cur.execute(
-                "SELECT verified, expires_at FROM auth.otp_codes WHERE email = %s",
+                "SELECT verified, expires_at FROM auth.otp_codes WHERE email = %s FOR UPDATE",
                 (email.lower(),),
             )
             row = cur.fetchone()
