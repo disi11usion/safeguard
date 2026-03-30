@@ -308,7 +308,7 @@ class ComponentPreferenceGetResponse(BaseModel):
 
 
 # ============================================================================
-# Stripe 支付相关模型（在文件末尾添加）
+# Stripe payment-related models
 # ============================================================================
 
 class PlanResponse(BaseModel):

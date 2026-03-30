@@ -10,14 +10,16 @@ from datetime import datetime, timedelta, timezone
 import asyncio
 import re
 from presentation import routes
+import psycopg2
+from psycopg2.extras import RealDictCursor
 import httpx
 from database.scripts import influencer_commission
 from database.scripts import user_auth
-from database.utils.db_pool import get_db_connection
 import time
 import uuid
 import os
 from application.helper.logging import setup_logging, log_request, log_response, log_error
+from database.db_pool import init_pool
 from application.clients.polygon_client import PolygonClient
 from application.clients.twelvedata_client import TwelveDataClient
 from application.clients.correlation import CorrelationAnalyzer
@@ -30,13 +32,11 @@ from application.clients.social_sentiment import SocialSentimentClient, _score_t
 from application.clients.reddit import RedditAPIClient
 from application.clients.government_client import get_government_client
 from database.scripts import data_request
-from application.clients.price_cache import (
-    historical_cache, indicators_cache, top_list_cache, stock_cache,
-    make_cache_key, request_coalescer,
-)
 
 
 from application.services.market_shake import MarketShakeService
+from application.cache.price_cache import price_cache, PriceEntry
+from application.cache.price_queue import PriceRefreshQueue
 
 logger = setup_logging()
 load_dotenv(dotenv_path='../../.env')
@@ -52,15 +52,27 @@ app = FastAPI(title="Safeguard AI Investment Assistant API", version="1.0", open
 
 @app.on_event("startup")
 async def on_startup():
+    init_pool()
     ensure_disclaimer_table_exists()
-    # 服务启动后，在后台预热 social sentiment 缓存，避免第一次请求超时
+    # Initialize price cache (connect to Redis; falls back to in-process L1-only mode if unavailable)
+    await price_cache.initialize()
+    # Start price refresh queue (3 worker coroutines)
+    await refresh_queue.start()
+    # Warm up social sentiment cache in the background at startup to avoid timeout on first request
     asyncio.create_task(_warmup_social_sentiment_cache())
 
+
+@app.on_event("shutdown")
+async def on_shutdown():
+    await refresh_queue.stop()
+    await price_cache.close()
+
+
 async def _warmup_social_sentiment_cache():
-    """服务启动时在后台预先计算一次 social sentiment，结果存入缓存。
-    这样用户第一次请求时直接命中缓存，不会超时。"""
+    """Pre-compute social sentiment once in the background at startup and store the result in cache.
+    This ensures the first user request hits the cache instead of timing out."""
     try:
-        await asyncio.sleep(5)  # 等待数据库连接就绪
+        await asyncio.sleep(5)  # Wait for the database connection to be ready
         logger.info("🔥 [Warmup] Starting social sentiment cache warmup...")
         now = datetime.now(timezone.utc)
         start_dt = now - timedelta(hours=24)
@@ -145,6 +157,145 @@ market_shake_service = MarketShakeService()
 DATABASE_URL = os.getenv("DATABASE_URL")
 USING_MOCK_DATA = os.getenv('USING_MOCK_DATA', 'FALSE').upper() == 'TRUE'
 
+# ── Asset-type mapping (cache key prefix → asset_type) ────────────────────
+_MARKET_TO_ASSET_TYPE = {
+    "crypto":  "crypto",
+    "stocks":  "stock",
+    "forex":   "forex",
+    "fx":      "forex",
+    "futures": "futures",
+}
+
+
+# ── Background refresh function (called by queue workers) ─────────────────
+async def _refresh_price_fn(cache_key: str) -> None:
+    """
+    Dispatch a refresh task for the given cache_key.
+    Cache key conventions:
+        market_list:{market}                         – top-50 list for a market
+        market_summary:{ticker}:{market}:{days}      – single-ticker indicators
+    Always releases the refresh lock in a finally block.
+    """
+    try:
+        if cache_key.startswith("market_list:"):
+            market = cache_key.split(":", 1)[1]
+            if market == "futures":
+                futures_data_path = os.path.join(
+                    os.path.dirname(__file__), "../_lib/mock_list_futures.json"
+                )
+                with open(futures_data_path, "r", encoding="utf-8") as f:
+                    futures_data = json.load(f)
+                futures_list = futures_data.get("futures", [])
+                items = await twelvedata_client.process_futures_list(futures_list)
+                data = {"success": True, "market": market, "count": len(items), "data": items}
+            else:
+                market_mapping = {"crypto": "crypto", "forex": "fx", "stocks": "stocks"}
+                api_market = market_mapping.get(market, market)
+                data = await polygon_client.get_comprehensive_market_data(api_market, limit=50)
+
+        elif cache_key.startswith("market_summary:"):
+            _, ticker, market, days_str = cache_key.split(":", 3)
+            api_market = "forex" if market == "futures" else market
+            data = await polygon_client.get_market_summary_with_indicators(
+                ticker=ticker, market=api_market, days=int(days_str)
+            )
+        else:
+            logger.warning(f"[PriceRefresh] Unknown cache_key pattern: '{cache_key}'")
+            return
+
+        asset_type = _MARKET_TO_ASSET_TYPE.get(
+            cache_key.split(":")[1] if ":" in cache_key else "default", "default"
+        )
+        await price_cache.set(cache_key, asset_type, data)
+
+        # Persist to L3 (PostgreSQL cache.price_snapshot) in a thread
+        await asyncio.to_thread(_upsert_price_snapshot, cache_key, asset_type, data)
+        logger.info(f"[PriceRefresh] Refreshed '{cache_key}'")
+
+    except Exception as exc:
+        logger.error(f"[PriceRefresh] Error refreshing '{cache_key}': {exc}")
+    finally:
+        await price_cache.release_refresh(cache_key)
+
+
+def _upsert_price_snapshot(cache_key: str, asset_type: str, data: Any) -> None:
+    """Write/update L3 price snapshot in PostgreSQL (blocking, run in thread)."""
+    try:
+        with get_cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO cache.price_snapshot (cache_key, asset_type, data, last_updated_at)
+                VALUES (%s, %s, %s::jsonb, NOW())
+                ON CONFLICT (cache_key) DO UPDATE
+                    SET data = EXCLUDED.data,
+                        last_updated_at = EXCLUDED.last_updated_at
+                """,
+                (cache_key, asset_type, json.dumps(data)),
+            )
+    except Exception as exc:
+        logger.warning(f"[PriceRefresh] L3 DB write failed for '{cache_key}': {exc}")
+
+
+async def _read_l3_snapshot(cache_key: str) -> Optional[dict]:
+    """Read from PostgreSQL cache.price_snapshot (cold-start fallback)."""
+    def _query():
+        try:
+            with get_cursor() as cur:
+                cur.execute(
+                    "SELECT data, last_updated_at FROM cache.price_snapshot WHERE cache_key = %s",
+                    (cache_key,),
+                )
+                return cur.fetchone()
+        except Exception:
+            return None
+
+    row = await asyncio.to_thread(_query)
+    return row  # (data_dict, last_updated_at) or None
+
+
+# ── Cache-first helper ─────────────────────────────────────────────────────
+async def _cache_first(cache_key: str, asset_type: str, fetch_fn) -> Any:
+    """
+    Universal cache-first read with background refresh.
+
+    Flow:
+      1. L1/L2 fresh hit  → return immediately
+      2. L1/L2 stale      → enqueue refresh (if not already running)
+                            → return stale data
+      3. Cold start        → try L3 (DB snapshot)
+                            → if still nothing, call fetch_fn() directly
+    """
+    entry = await price_cache.get(cache_key)
+
+    if entry and price_cache.is_fresh(entry):
+        return entry.data
+
+    # Enqueue background refresh (deduplicated)
+    if not price_cache.is_refreshing(cache_key):
+        claimed = await price_cache.claim_refresh(cache_key)
+        if claimed:
+            await refresh_queue.enqueue(cache_key)
+
+    # Return stale L1/L2 data while refresh runs
+    if entry:
+        return entry.data
+
+    # Cold start: try L3 DB snapshot first
+    row = await _read_l3_snapshot(cache_key)
+    if row:
+        data, updated_at = row
+        await price_cache.set(cache_key, asset_type, data)
+        return data
+
+    # Truly cold: block on a direct API call
+    data = await fetch_fn()
+    await price_cache.set(cache_key, asset_type, data)
+    return data
+
+
+# ── Refresh queue (forward-declared here; started in on_startup) ───────────
+refresh_queue = PriceRefreshQueue(refresh_fn=_refresh_price_fn, num_workers=3)
+
 
 def classify_social_item_sentiment(score: float) -> str:
     if score > 0.15:
@@ -153,10 +304,12 @@ def classify_social_item_sentiment(score: float) -> str:
         return "negative"
     return "neutral"
 
+from database.db_pool import get_conn, release_conn, get_cursor
+
 def get_db_conn():
     if not DATABASE_URL:
         raise RuntimeError("DATABASE_URL not set")
-    return get_db_connection()
+    return get_conn()
 
 DISCLAIMER_ACCEPTANCES_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS disclaimer_acceptances (
@@ -188,7 +341,7 @@ def ensure_disclaimer_table_exists():
         if cur:
             cur.close()
         if conn:
-            conn.close()
+            release_conn(conn)
 
 @app.get("/")
 async def root():
@@ -197,17 +350,6 @@ async def root():
     response = {"message": "Stock Correlation API", "version": "1.0", "timestamp": datetime.now().isoformat()}
     log_response(logger, endpoint, response)
     return response
-
-
-@app.get("/api/cache/stats")
-async def get_cache_stats():
-    return {
-        "historical_cache": historical_cache.stats(),
-        "indicators_cache": indicators_cache.stats(),
-        "top_list_cache": top_list_cache.stats(),
-        "stock_cache": stock_cache.stats(),
-        "request_coalescer": request_coalescer.stats(),
-    }
 
 
 @app.get("/api/market-shake/summary")
@@ -333,13 +475,8 @@ async def get_stock_data(symbol: str, start_date: str, end_date: str):
     log_request(logger, endpoint, params)
     
     try:
-        cache_key = make_cache_key("stock", symbol, start_date, end_date)
-
-        async def _fetch():
-            data = await polygon_client.get_single_stock_data(symbol, start_date, end_date)
-            return {"symbol": symbol, "data": data}
-
-        response = await request_coalescer.fetch_or_wait(cache_key, stock_cache, _fetch)
+        data = await polygon_client.get_single_stock_data(symbol, start_date, end_date)
+        response = {"symbol": symbol, "data": data}
         log_response(logger, endpoint, response)
         return response
     except Exception as e:
@@ -364,19 +501,15 @@ async def get_unified_historical_data(
     try:
         if market not in ["crypto", "stocks", "forex"]:
             raise HTTPException(status_code=400, detail="Invalid market type. Must be 'crypto', 'stocks', or 'forex'")
-
-        cache_key = make_cache_key("historical", ticker, start_date, end_date, market, timespan)
-
-        async def _fetch():
-            r = await polygon_client.get_unified_historical_data(ticker, start_date, end_date, market, timespan)
-            if not r.get("success"):
-                raise HTTPException(status_code=404, detail=r.get("error", "Failed to fetch historical data"))
-            return r
-
-        result = await request_coalescer.fetch_or_wait(cache_key, historical_cache, _fetch)
+        
+        result = await polygon_client.get_unified_historical_data(ticker, start_date, end_date, market, timespan)
         log_response(logger, endpoint, result, success=result.get("success", False))
+        
+        if not result.get("success"):
+            raise HTTPException(status_code=404, detail=result.get("error", "Failed to fetch historical data"))
+        
         return result
-
+    
     except HTTPException:
         raise
     except Exception as e:
@@ -529,24 +662,24 @@ async def get_market_summary_with_technical_indicators(
                 status_code=400,
                 detail=f"Invalid market type. Must be one of: {', '.join(valid_markets)}"
             )
-        
-        # Futures use forex endpoint
-        api_market = "forex" if market == "futures" else market
 
-        cache_key = make_cache_key("indicators", ticker, market, days)
+        api_market = "forex" if market == "futures" else market
+        cache_key = f"market_summary:{ticker}:{market}:{days}"
+        asset_type = _MARKET_TO_ASSET_TYPE.get(market, "default")
 
         async def _fetch():
-            r = await polygon_client.get_market_summary_with_indicators(
+            return await polygon_client.get_market_summary_with_indicators(
                 ticker=ticker, market=api_market, days=days
             )
-            if not r.get('success'):
-                raise HTTPException(status_code=404, detail=r.get('error', 'Failed to fetch market data'))
-            return r
 
-        result = await request_coalescer.fetch_or_wait(cache_key, indicators_cache, _fetch)
+        result = await _cache_first(cache_key, asset_type, _fetch)
+
+        if not result.get("success"):
+            raise HTTPException(status_code=404, detail=result.get("error", "Failed to fetch market data"))
+
         log_response(logger, endpoint, result)
         return result
-    
+
     except HTTPException:
         raise
     except Exception as e:
@@ -564,42 +697,31 @@ async def get_comprehensive_top_list(
         valid_markets = ["stocks", "forex", "futures", "crypto"]
         if market not in valid_markets:
             raise HTTPException(status_code=400, detail=f"Invalid market type. Must be one of: {', '.join(valid_markets)}")
-        
-        if market in ["crypto", "forex", "stocks"]:
-            cache_key = make_cache_key("top_list", market)
 
-            async def _fetch():
+        cache_key = f"market_list:{market}"
+        asset_type = _MARKET_TO_ASSET_TYPE.get(market, "default")
+
+        async def _fetch():
+            if market in ["crypto", "forex", "stocks"]:
                 market_mapping = {"crypto": "crypto", "forex": "fx", "stocks": "stocks"}
                 api_market = market if USING_MOCK_DATA else market_mapping[market]
                 return await polygon_client.get_comprehensive_market_data(api_market, limit=50)
 
-            result = await request_coalescer.fetch_or_wait(cache_key, top_list_cache, _fetch)
-            log_response(logger, endpoint, {"count": result.get("count", 0), "mock": USING_MOCK_DATA}, success=result.get("success", False))
-            return result
-
-        elif market == "futures":
+            # futures
             if USING_MOCK_DATA:
-                result = await polygon_client.get_comprehensive_market_data(market, limit=50)
-                log_response(logger, endpoint, {"count": result.get("count", 0), "mock": True}, success=result.get("success", False))
-                return result
-            
+                return await polygon_client.get_comprehensive_market_data(market, limit=50)
+
             futures_data_path = os.path.join(os.path.dirname(__file__), "../_lib/mock_list_futures.json")
-            with open(futures_data_path, 'r', encoding='utf-8') as f:
+            with open(futures_data_path, "r", encoding="utf-8") as f:
                 futures_data = json.load(f)
-            
             futures_list = futures_data.get("futures", [])
-            transformed_data = await twelvedata_client.process_futures_list(futures_list)
-            
-            result = {
-                "success": True,
-                "market": market,
-                "count": len(transformed_data),
-                "data": transformed_data
-            }
-            
-            log_response(logger, endpoint, {"count": len(transformed_data), "mock": False}, success=True)
-            return result
-        
+            items = await twelvedata_client.process_futures_list(futures_list)
+            return {"success": True, "market": market, "count": len(items), "data": items}
+
+        result = await _cache_first(cache_key, asset_type, _fetch)
+        log_response(logger, endpoint, {"count": result.get("count", 0)}, success=result.get("success", False))
+        return result
+
         raise HTTPException(status_code=400, detail=f"Unsupported market type: {market}")
         
     except HTTPException:
@@ -1188,13 +1310,30 @@ async def get_preference_list(
         if cursor:
             cursor.close()
         if conn:
-            conn.close()
+            release_conn(conn)
 
 
 # Include presentation routes with /v1 prefix
 app.include_router(routes.router, prefix="/v1")
 # Compatibility mount for clients that call /api/v1/*
 app.include_router(routes.router, prefix="/api/v1")
+
+def _enrich_reddit_posts(posts: list) -> list:
+    """Score each post with sentiment — runs in a thread pool (blocking NLP call)."""
+    enriched = []
+    for post in posts:
+        item = dict(post)
+        combined_text = " ".join(
+            part.strip()
+            for part in [item.get("title"), item.get("content")]
+            if isinstance(part, str) and part.strip()
+        )
+        sentiment_score = round(float(_score_text(combined_text)), 4) if combined_text else 0.0
+        item["sentiment_score"] = sentiment_score
+        item["sentiment_label"] = classify_social_item_sentiment(sentiment_score)
+        enriched.append(item)
+    return enriched
+
 
 # ========== Reddit API Endpoints ==========
 @app.get("/api/reddit/subreddit/{subreddit}", tags=["Reddit"])
@@ -1218,19 +1357,7 @@ async def get_reddit_posts(
         )
 
         if result.get("success") and isinstance(result.get("posts"), list):
-            enriched_posts = []
-            for post in result["posts"]:
-                item = dict(post)
-                combined_text = " ".join(
-                    part.strip()
-                    for part in [item.get("title"), item.get("content")]
-                    if isinstance(part, str) and part.strip()
-                )
-                sentiment_score = round(float(_score_text(combined_text)), 4) if combined_text else 0.0
-                item["sentiment_score"] = sentiment_score
-                item["sentiment_label"] = classify_social_item_sentiment(sentiment_score)
-                enriched_posts.append(item)
-            result["posts"] = enriched_posts
+            result["posts"] = await asyncio.to_thread(_enrich_reddit_posts, result["posts"])
 
         log_response(logger, endpoint, result, success=result.get("success", True))
         return result

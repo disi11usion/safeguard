@@ -8,7 +8,9 @@ ALTER TABLE auth.users
 DO $$
 BEGIN
     IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'fk_users_referred_by_influencer'
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'fk_users_referred_by_influencer'
     ) THEN
         ALTER TABLE auth.users
             ADD CONSTRAINT fk_users_referred_by_influencer
@@ -16,8 +18,7 @@ BEGIN
             REFERENCES marketing.influencers(id)
             ON DELETE SET NULL;
     END IF;
-END
-$$;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_users_referral_code_used
     ON auth.users(referral_code_used);

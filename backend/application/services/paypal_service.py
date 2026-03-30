@@ -9,7 +9,7 @@ class PaypalService:
         self.base_url = "https://api-m.sandbox.paypal.com" if PaypalConfig.MODE == "sandbox" else "https://api-m.paypal.com"
 
     def _get_access_token(self):
-        """获取 PayPal Access Token"""
+        """Retrieve a PayPal OAuth access token."""
         url = f"{self.base_url}/v1/oauth2/token"
         headers = {
             "Accept": "application/json",
@@ -33,7 +33,7 @@ class PaypalService:
             raise e
 
     def create_order(self, amount: str, currency: str = "USD"):
-        """创建 PayPal 订单"""
+        """Create a new PayPal order."""
         access_token = self._get_access_token()
         url = f"{self.base_url}/v2/checkout/orders"
         
@@ -63,7 +63,7 @@ class PaypalService:
             raise e
 
     def capture_order(self, order_id: str):
-        """捕获/完成 PayPal 订单"""
+        """Capture (complete) a PayPal order."""
         access_token = self._get_access_token()
         url = f"{self.base_url}/v2/checkout/orders/{order_id}/capture"
         

@@ -5,6 +5,7 @@ pydantic==2.5.0
 python-multipart==0.0.6
 sqlalchemy
 psycopg2-binary
+psycopg_pool
 alembic
 passlib[bcrypt]
 bcrypt==4.0.1
@@ -33,6 +34,8 @@ emoji
 tqdm
 contractions
 apscheduler
+redis>=5.0.0
+cachetools>=5.3.0
 torch
 transformers
 vaderSentiment
@@ -40,7 +43,6 @@ prophet
 scikit-learn
 xgboost
 joblib
-debugpy
 openai==1.54.0
 yfinance==0.2.32
 stripe==11.1.1

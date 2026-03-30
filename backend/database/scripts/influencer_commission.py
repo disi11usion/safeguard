@@ -1,15 +1,13 @@
-from database.utils.db_pool import get_db_connection
 import os
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
+from database.db_pool import get_conn, release_conn
+
 DEFAULT_RATE = 0.30
 
 def _conn():
-    db = os.getenv("DATABASE_URL")
-    if not db:
-        raise RuntimeError("DATABASE_URL missing")
-    return get_db_connection()
+    return get_conn()
 
 def record_paid_order_and_apply_commission(
     *,
@@ -70,3 +68,5 @@ def record_paid_order_and_apply_commission(
     except Exception as e:
         conn.rollback()
         return {"success": False, "message": str(e)}
+    finally:
+        release_conn(conn)

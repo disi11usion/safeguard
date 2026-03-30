@@ -5,17 +5,18 @@ Provides data access for the Government Macro Sentiment module.
 
 import os
 import psycopg2
+from database.db_pool import get_conn, release_conn
 from psycopg2.extras import RealDictCursor
 from typing import Dict, Any, List, Optional
 from datetime import datetime
-from database.utils.db_pool import get_db_connection
+
 
 class GovernmentClient:
     def __init__(self):
         self.db_url = os.getenv("DATABASE_URL")
 
     def _get_conn(self):
-        return get_db_connection()
+        return get_conn()
 
     def _safe_query(self, query: str, params: tuple = None) -> List[dict]:
         """Execute a query and return results as list of dicts."""
@@ -25,7 +26,7 @@ class GovernmentClient:
             cursor.execute(query, params)
             results = cursor.fetchall()
             cursor.close()
-            conn.close()
+            release_conn(conn)
             return [dict(row) for row in results]
         except Exception as e:
             print(f"Government DB query error: {e}")

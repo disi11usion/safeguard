@@ -6,7 +6,6 @@
 # Date: 01-07-2025
 """
 
-from database.utils.db_pool import get_db_connection
 import os
 from time import timezone
 import psycopg2
@@ -18,8 +17,10 @@ import calendar
 # Load environment variables from .env file
 load_dotenv()
 
+from database.db_pool import get_conn, release_conn
+
 def _get_conn():
-    return get_db_connection()
+    return get_conn()
 
 def _df_from_cursor(cursor):
     rows = cursor.fetchall()
@@ -33,7 +34,7 @@ def get_crypto_data(exchange_name="binance"):
     conn = None
     cursor = None
     try:
-        conn = get_db_connection()
+        conn = _get_conn()
         cursor = conn.cursor()
 
         # Fetch the all crypto details by market cap
@@ -78,7 +79,7 @@ def get_crypto_data(exchange_name="binance"):
         if "cursor" in locals() and cursor:
             cursor.close()
         if "conn" in locals() and conn:
-            conn.close()
+            release_conn(conn)
 
 
 # This function returns the raw prices for the last 50 days for all cryptos
@@ -86,7 +87,7 @@ def get_raw_prices():
     conn = None
     cursor = None
     try:
-        conn = get_db_connection()
+        conn = _get_conn()
         cursor = conn.cursor()
 
         cursor.execute("""
@@ -159,7 +160,7 @@ def get_raw_prices():
         if "cursor" in locals() and cursor:
             cursor.close()
         if "conn" in locals() and conn:
-            conn.close()
+            release_conn(conn)
 
 
 # This function returns the raw social posts for the given job_id
@@ -167,7 +168,7 @@ def get_raw_social(job_id, source_id):
     conn = None
     cursor = None
     try:
-        conn = get_db_connection()
+        conn = _get_conn()
         cursor = conn.cursor()
 
         # Fetch raw social posts for the given job_id
@@ -208,7 +209,7 @@ def get_raw_social(job_id, source_id):
         if "cursor" in locals() and cursor:
             cursor.close()
         if "conn" in locals() and conn:
-            conn.close()
+            release_conn(conn)
 
 
 # This function returns the raw news for the given job_id
@@ -216,7 +217,7 @@ def get_raw_news(job_id, source_id):
     conn = None
     cursor = None
     try:
-        conn = get_db_connection()
+        conn = _get_conn()
         cursor = conn.cursor()
 
         # Fetch raw news for the given job_id
@@ -256,7 +257,7 @@ def get_raw_news(job_id, source_id):
         if "cursor" in locals() and cursor:
             cursor.close()
         if "conn" in locals() and conn:
-            conn.close()
+            release_conn(conn)
 
 
 # This function returns the current prices for the given exchange
@@ -264,7 +265,7 @@ def get_curr_prices(exchange="Binance"):
     conn = None
     cursor = None
     try:
-        conn = get_db_connection()
+        conn = _get_conn()
         cursor = conn.cursor()
 
         # Helper functions
@@ -448,7 +449,7 @@ def get_curr_prices(exchange="Binance"):
         if "cursor" in locals() and cursor:
             cursor.close()
         if "conn" in locals() and conn:
-            conn.close()
+            release_conn(conn)
 
 
 
@@ -457,7 +458,7 @@ def get_curr_news(last_day=False):
     conn = None
     cursor = None
     try:
-        conn = get_db_connection()
+        conn = _get_conn()
         cursor = conn.cursor()
 
         interval = "1 day" if last_day else "1 hour"
@@ -511,7 +512,7 @@ def get_curr_news(last_day=False):
         if "cursor" in locals() and cursor:
             cursor.close()
         if "conn" in locals() and conn:
-            conn.close()
+            release_conn(conn)
 
 
 # This function returns the current social
@@ -519,7 +520,7 @@ def get_curr_social(last_day=False):
     conn = None
     cursor = None
     try:
-        conn = get_db_connection()
+        conn = _get_conn()
         cursor = conn.cursor()
 
         interval = "1 day" if last_day else "1 hour"
@@ -556,7 +557,7 @@ def get_curr_social(last_day=False):
         if "cursor" in locals() and cursor:
             cursor.close()
         if "conn" in locals() and conn:
-            conn.close()
+            release_conn(conn)
 
 def get_social_posts(start_time=None, end_time=None, limit=1000):
     conn = None
@@ -598,7 +599,7 @@ def get_social_posts(start_time=None, end_time=None, limit=1000):
         if cursor:
             cursor.close()
         if conn:
-            conn.close()
+            release_conn(conn)
 
 
 # This function returns the last historic run
@@ -606,7 +607,7 @@ def get_last_historic_run():
     conn = None
     cursor = None
     try:
-        conn = get_db_connection()
+        conn = _get_conn()
         cursor = conn.cursor()
 
         # SQL query to get the last historic run
@@ -660,7 +661,7 @@ def get_last_historic_run():
         if "cursor" in locals() and cursor:
             cursor.close()
         if "conn" in locals() and conn:
-            conn.close()
+            release_conn(conn)
 
 
 # This function returns the prices and news for the given date range
@@ -668,7 +669,7 @@ def get_prices_news(start_date=None, end_date=None):
     conn = None
     cursor = None
     try:
-        conn = get_db_connection()
+        conn = _get_conn()
         cursor = conn.cursor()
         
         # Update start and end dates if not passed.
@@ -766,7 +767,7 @@ def get_prices_news(start_date=None, end_date=None):
         if "cursor" in locals() and cursor:
             cursor.close()
         if "conn" in locals() and conn:
-            conn.close()
+            release_conn(conn)
 
 
 # This function returns the news for the given date range
@@ -774,7 +775,7 @@ def get_news_for_training(last_hour=False):
     conn = None
     cursor = None
     try:
-        conn = get_db_connection()
+        conn = _get_conn()
         cursor = conn.cursor()
 
         if last_hour:
@@ -847,7 +848,7 @@ def get_news_for_training(last_hour=False):
         if "cursor" in locals() and cursor:
             cursor.close()
         if "conn" in locals() and conn:
-            conn.close()
+            release_conn(conn)
 
 
 # This function returns the prices for the given date range
@@ -855,7 +856,7 @@ def get_prices_for_training(last_hour=False):
     conn = None
     cursor = None
     try:
-        conn = get_db_connection()
+        conn = _get_conn()
         cursor = conn.cursor()
 
         if last_hour:
@@ -931,7 +932,7 @@ def get_prices_for_training(last_hour=False):
         if "cursor" in locals() and cursor:
             cursor.close()
         if "conn" in locals() and conn:
-            conn.close()
+            release_conn(conn)
 
 
 # This function returns the sentiment for the each crypto_id and the market level sentiment
@@ -939,7 +940,7 @@ def get_sentiment():
     conn = None
     cursor = None
     try:
-        conn = get_db_connection()
+        conn = _get_conn()
         cursor = conn.cursor()
 
         # Get the latest sentiment for each crypto_id
@@ -1000,7 +1001,7 @@ def get_sentiment():
         if "cursor" in locals() and cursor:
             cursor.close()
         if "conn" in locals() and conn:
-            conn.close()
+            release_conn(conn)
 
 
 # This function returns the forecast for the given user
@@ -1008,7 +1009,7 @@ def get_forecast(user_id):
     conn = None
     cursor = None
     try:
-        conn = get_db_connection()
+        conn = _get_conn()
         cursor = conn.cursor()
 
         # Get the latest forecast for the given user
@@ -1062,7 +1063,7 @@ def get_forecast(user_id):
         if "cursor" in locals() and cursor:
             cursor.close()
         if "conn" in locals() and conn:
-            conn.close()
+            release_conn(conn)
 
 def get_economic_events(start_date=None, end_date=None, coutries = None, importance=None):
     conn = None
@@ -1108,7 +1109,7 @@ def get_economic_events(start_date=None, end_date=None, coutries = None, importa
         return None
     finally:
         if cursor: cursor.close()
-        if conn: conn.close()
+        if conn: release_conn(conn)
 
 
 def get_stock_market_data(symbols=None, start_time=None, end_time=None, limit=500):
@@ -1152,7 +1153,7 @@ def get_stock_market_data(symbols=None, start_time=None, end_time=None, limit=50
         return None
     finally:
         if cursor: cursor.close()
-        if conn: conn.close()
+        if conn: release_conn(conn)
 
 def get_crypto_transactions(start_time=None, end_time=None, limit=1000):
     conn = None
@@ -1215,7 +1216,7 @@ def get_crypto_transactions(start_time=None, end_time=None, limit=1000):
         return None
     finally:
         if cursor: cursor.close()
-        if conn: conn.close()
+        if conn: release_conn(conn)
 
 def get_news_sentiment(start_time=None, end_time=None, symbols=None):
     conn = None
@@ -1255,7 +1256,7 @@ def get_news_sentiment(start_time=None, end_time=None, symbols=None):
         return None
     finally:
         if cursor: cursor.close()
-        if conn: conn.close()
+        if conn: release_conn(conn)
 def get_sentiment_summary(start_time=None, end_time=None, symbol=None):
     conn = None
     cursor = None
@@ -1293,7 +1294,7 @@ def get_sentiment_summary(start_time=None, end_time=None, symbol=None):
         return None
     finally:
         if cursor: cursor.close()
-        if conn: conn.close()
+        if conn: release_conn(conn)
     
 def get_market_movers(date_from=None, date_to=None, limit=100):
     conn = None
@@ -1330,4 +1331,4 @@ def get_market_movers(date_from=None, date_to=None, limit=100):
         return None
     finally:
         if cursor: cursor.close()
-        if conn: conn.close()
+        if conn: release_conn(conn)
