@@ -1,8 +1,4 @@
-
-
-
-
-# database
+# Database
 pgdata/
 *.db
 *.sqlite
@@ -45,9 +41,7 @@ logs/
 # Docker volumes
 ollama_data/
 
-# 大文件和数据文件
-
-backend/_lib/*.json  # ← 添加这行
+# Large data files
 *.parquet
 *.pickle
 *.pkl
@@ -57,7 +51,7 @@ backend/_lib/*.json  # ← 添加这行
 *.tar.gz
 *.rar
 
-# 模型文件
+# Model files
 *.pt
 *.pth
 *.onnx
@@ -65,11 +59,10 @@ backend/_lib/*.json  # ← 添加这行
 *.tflite
 *.bin
 
-# 训练数据
+# Training data
 backend/database/data/
-data/
 datasets/
 
-# Session 文件
+# Session files
 data/session.session
-*.session
+*.session.env

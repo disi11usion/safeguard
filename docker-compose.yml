@@ -1,4 +1,15 @@
-﻿services:
+services:
+  redis:
+    image: redis:7-alpine
+    restart: always
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   db:
     image: timescale/timescaledb:latest-pg17
     restart: always
@@ -42,6 +53,7 @@
       - OTP_DEV_MODE=false
       - SMTP_FORCE_IPV4=true
       - MARKET_SHAKE_CSV_DIR=/app/data/csv
+      - REDIS_URL=redis://redis:6379/0
     volumes:
       - ./backend:/app
       - ./data:/app/data:ro
@@ -50,6 +62,8 @@
         condition: service_healthy
       db-init:
         condition: service_completed_successfully
+      redis:
+        condition: service_healthy
 
   frontend:
     build:

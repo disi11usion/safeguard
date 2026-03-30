@@ -24,14 +24,14 @@ from database.scripts import user_auth, user_preference, data_request  # type: i
 from application.services import otp_service
 from . import models
 from dotenv import load_dotenv  # type: ignore
+import asyncio
 import os
 from typing import Optional, Dict, Any
 import json
 import hashlib
 import psycopg2
 from psycopg2.extras import RealDictCursor
-from datetime import datetime, timedelta
-from database.utils.db_pool import get_db_connection
+from datetime import datetime, timedelta, timezone
 
 from jose import jwt
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -48,8 +48,10 @@ router = APIRouter()
 
 load_dotenv()
 
+from database.db_pool import get_conn, release_conn, get_cursor
+
 def _get_db_conn():
-    return get_db_connection()
+    return get_conn()
 
 
 @router.post("/disclaimer/accept", tags=["Legal"])
@@ -64,20 +66,16 @@ async def accept_disclaimer(payload: models.DisclaimerAcceptRequest, request: Re
         # best effort IP extraction
         ip = request.headers.get("x-forwarded-for") or request.client.host
 
-        conn = _get_db_conn()
-        cur = conn.cursor()
-        cur.execute(
-            """
-            INSERT INTO public.disclaimer_acceptances
-              (session_id, disclaimer_version, disclaimer_hash, country, accepted, accepted_at, ip_address, user_id)
-            VALUES
-              (%s, %s, %s, %s, TRUE, NOW(), %s, NULL)
-            """,
-            (payload.session_id, payload.disclaimer_version, disclaimer_hash, payload.country, ip),
-        )
-        conn.commit()
-        cur.close()
-        conn.close()
+        with get_cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO public.disclaimer_acceptances
+                  (session_id, disclaimer_version, disclaimer_hash, country, accepted, accepted_at, ip_address, user_id)
+                VALUES
+                  (%s, %s, %s, %s, TRUE, NOW(), %s, NULL)
+                """,
+                (payload.session_id, payload.disclaimer_version, disclaimer_hash, payload.country, ip),
+            )
 
         return {"success": True}
     except Exception as e:
@@ -110,7 +108,7 @@ def _ensure_admin(current_user: dict) -> None:
         if cursor:
             cursor.close()
         if conn:
-            conn.close()
+            release_conn(conn)
 
 def _get_table_columns(conn, schema: str, table: str) -> set[str]:
     with conn.cursor() as cur:
@@ -374,7 +372,7 @@ async def verify_otp(request_data: models.OtpVerifyRequest):
             "username": username,
             "iss": OTP_IDP_ISSUER,
             "aud": OTP_IDP_AUDIENCE,
-            "exp": datetime.now(tz=None) + timedelta(minutes=5),
+            "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
         }
 
         idp_token = jwt.encode(payload, OTP_IDP_SECRET, algorithm=os.getenv("ALGORITHM", "HS256"))
@@ -555,9 +553,6 @@ async def get_user_preference_assets(
         access_token = user_auth.get_access_token_from_request(request)
         user_id = user_auth.get_user_id_from_token(access_token)
 
-        conn = _get_db_conn()
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
-
         query = """
             SELECT
                 c.crypto_id,
@@ -573,11 +568,9 @@ async def get_user_preference_assets(
             ORDER BY c.category, c.name
         """
 
-        cursor.execute(query, (user_id,))
-        assets = cursor.fetchall()
-
-        cursor.close()
-        conn.close()
+        with get_cursor(cursor_factory=RealDictCursor) as cursor:
+            cursor.execute(query, (user_id,))
+            assets = cursor.fetchall()
 
         return {"success": True, "count": len(assets), "assets": assets}
 
@@ -703,14 +696,30 @@ async def get_component_preferences(
 
 
 @router.get("/prices/current", tags=["Current Data"])
-def get_current_prices(
+async def get_current_prices(
     exchange: models.Exchange = Query(models.Exchange.binance, description="Which exchange to pull prices from"),
 ):
+    from application.cache.price_cache import price_cache
+
+    cache_key = f"current_prices:{exchange.value.lower()}"
+
+    # L1/L2 hit
+    entry = await price_cache.get(cache_key)
+    if entry and price_cache.is_fresh(entry):
+        return entry.data
+
+    # Cache miss or stale: query DB (fast – data service keeps this table current)
     try:
-        result = data_request.get_curr_prices(exchange=exchange.value)
-        if result["success"]:
+        result = await asyncio.to_thread(data_request.get_curr_prices, exchange=exchange.value)
+        if result and result.get("success"):
+            await price_cache.set(cache_key, "crypto", result)
             return result
-        raise HTTPException(status_code=404, detail=result["message"])
+        # DB returned nothing – return stale cache if we have it
+        if entry:
+            return entry.data
+        raise HTTPException(status_code=404, detail=result.get("message", "No price data found"))
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Error in /prices/current endpoint: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -783,28 +792,23 @@ from database.scripts import payment_operations  # type: ignore
 @router.get("/plans", tags=["Payments"])
 async def get_plans():
     try:
-        conn = _get_db_conn()
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
-
-        cursor.execute(
-            """
-            SELECT
-                plan_id, plan_key, tier, billing_cycle,
-                price_cents, currency, description,
-                news_analysis_limit, social_analysis_limit,
-                data_access, sentiment_analysis,
-                api_access, priority_support, duration_days,
-                stripe_price_id, stripe_product_id,
-                is_active, created_at, updated_at
-            FROM payments.plans
-            WHERE is_active = TRUE
-            ORDER BY price_cents;
-            """
-        )
-
-        plans = cursor.fetchall()
-        cursor.close()
-        conn.close()
+        with get_cursor(cursor_factory=RealDictCursor) as cursor:
+            cursor.execute(
+                """
+                SELECT
+                    plan_id, plan_key, tier, billing_cycle,
+                    price_cents, currency, description,
+                    news_analysis_limit, social_analysis_limit,
+                    data_access, sentiment_analysis,
+                    api_access, priority_support, duration_days,
+                    stripe_price_id, stripe_product_id,
+                    is_active, created_at, updated_at
+                FROM payments.plans
+                WHERE is_active = TRUE
+                ORDER BY price_cents;
+                """
+            )
+            plans = cursor.fetchall()
 
         if not plans:
             return {"success": False, "plans": [], "message": "No plans available"}
@@ -868,7 +872,8 @@ async def create_checkout_session(
         except Exception as e:
             raise HTTPException(status_code=401, detail=f"Token verification failed: {str(e)}")
 
-        result = payment_operations.create_stripe_checkout_session(
+        result = await asyncio.to_thread(
+            payment_operations.create_stripe_checkout_session,
             user_id=user_id,
             plan_key=request_data.plan_key,
             success_url=request_data.success_url,
@@ -897,7 +902,7 @@ async def get_checkout_session(
     current_user: dict = Depends(get_current_user_from_bearer),
 ):
     try:
-        result = payment_operations.get_checkout_session_details(session_id)
+        result = await asyncio.to_thread(payment_operations.get_checkout_session_details, session_id)
         if result["success"]:
             return result
         raise HTTPException(status_code=404, detail=result["message"])
@@ -912,7 +917,7 @@ async def verify_checkout_session(
     current_user: dict = Depends(get_current_user_from_bearer),
 ):
     try:
-        result = payment_operations.record_checkout_session(session_id)
+        result = await asyncio.to_thread(payment_operations.record_checkout_session, session_id)
         if result.get("success"):
             return result
         raise HTTPException(status_code=400, detail=result.get("message", "Failed to verify session"))
@@ -933,7 +938,7 @@ async def get_user_subscription(
             raise HTTPException(status_code=403, detail="Forbidden: username mismatch")
 
         user_id = current_user["user_id"]
-        result = payment_operations.get_user_active_subscription(user_id)
+        result = await asyncio.to_thread(payment_operations.get_user_active_subscription, user_id)
         return result
 
     except HTTPException:
@@ -955,7 +960,7 @@ async def get_user_transactions(
             raise HTTPException(status_code=403, detail="Forbidden: username mismatch")
 
         user_id = current_user["user_id"]
-        result = payment_operations.get_user_transactions(user_id=user_id, limit=limit, status=status)
+        result = await asyncio.to_thread(payment_operations.get_user_transactions, user_id, limit, status)
 
         if result["success"]:
             return result
@@ -979,9 +984,10 @@ async def cancel_user_subscription(
             raise HTTPException(status_code=403, detail="Forbidden: username mismatch")
 
         user_id = current_user["user_id"]
-        result = payment_operations.cancel_user_subscription(
-            user_id=user_id,
-            cancel_at_period_end=cancel_request.cancel_at_period_end,
+        result = await asyncio.to_thread(
+            payment_operations.cancel_user_subscription,
+            user_id,
+            cancel_request.cancel_at_period_end,
         )
 
         if result["success"]:
@@ -1004,7 +1010,7 @@ async def stripe_webhook(request: Request):
         if not signature:
             raise HTTPException(status_code=400, detail="Missing stripe-signature header")
 
-        result = payment_operations.handle_stripe_webhook(payload=payload, signature=signature)
+        result = await asyncio.to_thread(payment_operations.handle_stripe_webhook, payload, signature)
         return {"received": True, "event_id": result.get("event_id")}
 
     except Exception as e:
@@ -1015,7 +1021,7 @@ async def stripe_webhook(request: Request):
 @router.get("/users/{username}/check-subscription-limit", tags=["Payments"])
 async def check_subscription_limit(
     username: str,
-    limit_type: str = Query(..., description="限制类型"),
+    limit_type: str = Query(..., description="limit type"),
     current_user: dict = Depends(get_current_user_from_bearer),
 ):
     try:
@@ -1023,7 +1029,7 @@ async def check_subscription_limit(
             raise HTTPException(status_code=403, detail="Forbidden: username mismatch")
 
         user_id = current_user["user_id"]
-        result = payment_operations.check_user_subscription_limit(user_id=user_id, limit_type=limit_type)
+        result = await asyncio.to_thread(payment_operations.check_user_subscription_limit, user_id, limit_type)
         return result
 
     except HTTPException:
@@ -1066,7 +1072,7 @@ async def create_payment_intent(
         plan = cursor.fetchone()
         if not plan:
             cursor.close()
-            conn.close()
+            release_conn(conn)
             raise HTTPException(status_code=404, detail=f"Plan not found: {request_data.plan_key}")
 
         metadata = {
@@ -1109,7 +1115,7 @@ async def create_payment_intent(
 
         conn.commit()
         cursor.close()
-        conn.close()
+        release_conn(conn)
 
         return {
             "success": True,
@@ -1208,7 +1214,7 @@ async def confirm_payment(
         transaction = cursor.fetchone()
         if not transaction:
             cursor.close()
-            conn.close()
+            release_conn(conn)
             raise HTTPException(status_code=404, detail="Transaction not found")
 
         cursor.execute(
@@ -1252,7 +1258,7 @@ async def confirm_payment(
 
         conn.commit()
         cursor.close()
-        conn.close()
+        release_conn(conn)
 
         return {
             "success": True,
@@ -1300,7 +1306,7 @@ async def get_payment_methods_stats(current_user: dict = Depends(get_current_use
 
         stats = cursor.fetchall()
         cursor.close()
-        conn.close()
+        release_conn(conn)
 
         return {"success": True, "stats": stats}
 
@@ -1413,7 +1419,7 @@ async def admin_list_users(
         if cursor:
             cursor.close()
         if conn:
-            conn.close()
+            release_conn(conn)
 
 @router.post("/admin/users", tags=["Admin"])
 async def admin_create_user(
@@ -1536,7 +1542,7 @@ async def admin_create_user(
         if cursor:
             cursor.close()
         if conn:
-            conn.close()
+            release_conn(conn)
 
 
 @router.patch("/admin/users/{user_id}", tags=["Admin"])
@@ -1665,7 +1671,7 @@ async def admin_update_user(
         if cursor:
             cursor.close()
         if conn:
-            conn.close()
+            release_conn(conn)
 
 
 @router.delete("/admin/users/{user_id}", tags=["Admin"])
@@ -1691,7 +1697,7 @@ async def admin_delete_user(
         if cursor:
             cursor.close()
         if conn:
-            conn.close()
+            release_conn(conn)
 
 
 @router.get("/admin/influencers", tags=["Admin"])
@@ -1740,7 +1746,7 @@ async def admin_list_influencers(
         if cursor:
             cursor.close()
         if conn:
-            conn.close()
+            release_conn(conn)
 
 
 @router.post("/admin/influencers", tags=["Admin"])
@@ -1800,7 +1806,7 @@ async def admin_create_influencer(
         if cursor:
             cursor.close()
         if conn:
-            conn.close()
+            release_conn(conn)
 
 
 @router.patch("/admin/influencers/{influencer_code}", tags=["Admin"])
@@ -1872,7 +1878,7 @@ async def admin_update_influencer(
         if cursor:
             cursor.close()
         if conn:
-            conn.close()
+            release_conn(conn)
 
 
 @router.delete("/admin/influencers/{influencer_code}", tags=["Admin"])
@@ -1922,7 +1928,7 @@ async def admin_delete_influencer(
         if cursor:
             cursor.close()
         if conn:
-            conn.close()
+            release_conn(conn)
 
 
 @router.get("/admin/influencer-codes", tags=["Admin"])
@@ -1961,7 +1967,7 @@ async def admin_list_influencer_codes(current_user: dict = Depends(get_current_u
         if cursor:
             cursor.close()
         if conn:
-            conn.close()
+            release_conn(conn)
 
 
 @router.get("/admin/influencer-codes/analytics", tags=["Admin"])
@@ -2073,7 +2079,7 @@ async def admin_influencer_codes_analytics(
         if cursor:
             cursor.close()
         if conn:
-            conn.close()
+            release_conn(conn)
 
 
 @router.get("/admin/revenue-report", tags=["Admin"])
@@ -2244,7 +2250,7 @@ async def admin_revenue_report(
         if cursor:
             cursor.close()
         if conn:
-            conn.close()
+            release_conn(conn)
 
 
 @router.get("/admin/revenue", tags=["Admin"])
@@ -2289,4 +2295,4 @@ async def validate_influencer_code(code: str = Query(..., min_length=1)):
         if cursor:
             cursor.close()
         if conn:
-            conn.close()
+            release_conn(conn)

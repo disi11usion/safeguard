@@ -1,4 +1,3 @@
-from database.utils.db_pool import get_db_connection
 import os
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
@@ -10,6 +9,8 @@ from psycopg2.extras import RealDictCursor
 
 from application.clients.social_sentiment import _score_text
 
+
+from database.db_pool import get_conn, release_conn
 
 class NewsSentimentClient:
     LOCAL_FALLBACK_WINDOW_DAYS = 180
@@ -189,7 +190,7 @@ class NewsSentimentClient:
         conn = None
         cursor = None
         try:
-            conn = get_db_connection()
+            conn = get_conn()
             cursor = conn.cursor(cursor_factory=RealDictCursor)
             cursor.execute(sql, tuple(params))
             rows = cursor.fetchall()
@@ -278,7 +279,7 @@ class NewsSentimentClient:
             if cursor:
                 cursor.close()
             if conn:
-                conn.close()
+                release_conn(conn)
     
     async def get_news_sentiment(
         self,

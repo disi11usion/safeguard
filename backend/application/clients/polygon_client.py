@@ -17,7 +17,7 @@ class PolygonClient:
         load_dotenv()
         
         self.api_key = api_key or os.getenv('POLYGON_API_KEY')
-        # Polygon 已更名为 Massive
+        # Polygon has been rebranded to Massive
         self.base_url = "https://api.massive.com"
         
         # Check if using mock data mode

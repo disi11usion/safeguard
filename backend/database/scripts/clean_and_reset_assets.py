@@ -1,4 +1,3 @@
-from database.utils.db_pool import get_db_connection
 #!/usr/bin/env python3
 """
 Script to clean up and reset asset preferences
@@ -22,7 +21,7 @@ def clean_and_reset_assets():
     
     try:
         print("Connecting to database...")
-        conn = get_db_connection()
+        conn = psycopg2.connect(db_url)
         conn.autocommit = False
         cursor = conn.cursor()
         

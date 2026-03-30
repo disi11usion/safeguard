@@ -1,5 +1,4 @@
 
-from database.utils.db_pool import get_db_connection
 """
 #  file: user_auth.py
 # description: This script provides functions for user authentication,
@@ -9,9 +8,10 @@ from database.utils.db_pool import get_db_connection
 
 import os
 import psycopg2
+from database.db_pool import get_conn, release_conn
 from dotenv import load_dotenv
 import bcrypt
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from jose import JWTError, jwt
 from typing import Optional, Dict, Any
 from fastapi import HTTPException, Request
@@ -210,9 +210,9 @@ def create_access_token(data, expires_delta=None):
 
     to_encode = data.copy()
     if expires_delta:
-        expire = datetime.now() + expires_delta
+        expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = datetime.now() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
 
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
@@ -229,7 +229,7 @@ def user_signup(full_name, username, email, password, influencer_code: Optional[
     conn = None
     cursor = None
     try:
-        conn = get_db_connection()
+        conn = get_conn()
         cursor = conn.cursor()
 
         print("Setting timezone to UTC...")
@@ -239,17 +239,6 @@ def user_signup(full_name, username, email, password, influencer_code: Optional[
         _apply_admin_role_policy(conn)
 
         hashed_password = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
-
-        cursor.execute(
-            """
-            SELECT 1
-            FROM auth.users
-            WHERE username = %s OR email = %s
-            """,
-            (username, email),
-        )
-        if cursor.fetchone():
-            return {"success": False, "message": "Username or email already exists."}
 
         code = _normalize_code(influencer_code)
         user_type = "normal"
@@ -308,6 +297,10 @@ def user_signup(full_name, username, email, password, influencer_code: Optional[
             "access_token": access_token,
         }
 
+    except psycopg2.IntegrityError:
+        if conn:
+            conn.rollback()
+        return {"success": False, "message": "Username or email already exists."}
     except Exception as e:
         if conn:
             conn.rollback()
@@ -317,21 +310,18 @@ def user_signup(full_name, username, email, password, influencer_code: Optional[
         if cursor:
             cursor.close()
         if conn:
-            conn.close()
+            release_conn(conn)
 
 
 def user_login(email, password, influencer_code=None):
     conn = None
     cursor = None
     try:
-        conn = get_db_connection()
+        conn = get_conn()
         cursor = conn.cursor()
 
         print("Setting timezone to UTC...")
         cursor.execute("SET TIME ZONE 'UTC';")
-
-        _apply_admin_role_policy(conn)
-        conn.commit()
 
         cursor.execute(
             """
@@ -415,7 +405,7 @@ def user_login(email, password, influencer_code=None):
         if cursor:
             cursor.close()
         if conn:
-            conn.close()
+            release_conn(conn)
 
 
 def verify_token(token):
@@ -448,7 +438,7 @@ def user_update(access_token, full_name=None, username=None, email=None, passwor
     conn = None
     cursor = None
     try:
-        conn = get_db_connection()
+        conn = get_conn()
         cursor = conn.cursor()
 
         user_id = get_user_id_from_token(access_token)
@@ -499,14 +489,14 @@ def user_update(access_token, full_name=None, username=None, email=None, passwor
         if cursor:
             cursor.close()
         if conn:
-            conn.close()
+            release_conn(conn)
 
 
 def get_user_details(access_token):
     conn = None
     cursor = None
     try:
-        conn = get_db_connection()
+        conn = get_conn()
         cursor = conn.cursor()
 
         user_id = get_user_id_from_token(access_token)
@@ -579,14 +569,14 @@ def get_user_details(access_token):
         if cursor:
             cursor.close()
         if conn:
-            conn.close()
+            release_conn(conn)
 
 
 def get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
     conn = None
     cursor = None
     try:
-        conn = get_db_connection()
+        conn = get_conn()
         cursor = conn.cursor()
 
         cursor.execute(
@@ -626,7 +616,7 @@ def get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
         if cursor:
             cursor.close()
         if conn:
-            conn.close()
+            release_conn(conn)
 
 
 def get_current_user_from_cookie(request: Request) -> dict:

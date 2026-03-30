@@ -1,7 +1,6 @@
-from database.utils.db_pool import get_db_connection
 # """
-# 支付相关的数据库操作脚本
-# 类似 user_auth.py 和 data_ingestion.py 的设计模式
+# Database operation scripts for payment processing
+# Follows the same design pattern as user_auth.py and data_ingestion.py
 # """
 
 # import os
@@ -15,26 +14,26 @@ from database.utils.db_pool import get_db_connection
 
 # load_dotenv()
 
-# # 初始化 Stripe
+# # Initialize Stripe
 # stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
 # STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
 
 
 # def _get_conn():
-#     """获取数据库连接"""
-#     return get_db_connection()
+#     """Get a database connection."""
+#     return psycopg2.connect(os.getenv("DATABASE_URL"))
 
 
 # # ============================================================================
-# # 套餐查询
+# # Plan queries
 # # ============================================================================
 
 # def get_available_plans() -> Dict:
 #     """
-#     获取所有可用套餐
-    
+#     Retrieve all available subscription plans
+
 #     Returns:
-#         dict: 包含套餐列表的响应
+#         dict: response containing the list of plans
 #     """
 #     conn = None
 #     cursor = None
@@ -70,7 +69,7 @@ from database.utils.db_pool import get_db_connection
         
 #         plans = cursor.fetchall()
         
-#         # 格式化响应
+#         # Format response
 #         formatted_plans = []
 #         for plan in plans:
 #             formatted_plans.append({
@@ -118,17 +117,17 @@ from database.utils.db_pool import get_db_connection
 #     customer_email: Optional[str] = None
 # ) -> Dict:
 #     """
-#     创建 Stripe Checkout 会话
-    
+#     Create a Stripe Checkout session
+#
 #     Args:
-#         user_id: 用户 ID
-#         plan_key: 套餐标识
-#         success_url: 支付成功 URL
-#         cancel_url: 支付取消 URL
-#         customer_email: 客户邮箱
-    
+#         user_id: user ID
+#         plan_key: plan identifier
+#         success_url: payment success URL
+#         cancel_url: payment cancellation URL
+#         customer_email: customer email address
+#
 #     Returns:
-#         dict: 包含 checkout_url 的响应
+#         dict: response containing the checkout_url
 #     """
 #     conn = None
 #     cursor = None
@@ -136,7 +135,7 @@ from database.utils.db_pool import get_db_connection
 #         conn = _get_conn()
 #         cursor = conn.cursor(cursor_factory=RealDictCursor)
         
-#         # 1. 查询套餐信息
+#         # 1. Query plan details
 #         cursor.execute("""
 #             SELECT plan_key, tier, price_cents, currency, billing_cycle
 #             FROM payments.plans
@@ -207,7 +206,7 @@ from database.utils.db_pool import get_db_connection
 #     plan_key: str
 # ) -> Dict:
 #     """
-#     创建 PayPal 订单
+#     Create a PayPal order
 #     """
 #     conn = None
 #     cursor = None
@@ -215,25 +214,25 @@ from database.utils.db_pool import get_db_connection
 #         conn = _get_conn()
 #         cursor = conn.cursor(cursor_factory=RealDictCursor)
         
-#         # 1. 查询套餐信息
+#         # 1. Query plan details
 #         cursor.execute("""
 #             SELECT plan_key, price_cents, currency
 #             FROM payments.plans
 #             WHERE plan_key = %s AND is_active = TRUE
 #         """, (plan_key,))
-        
+
 #         plan = cursor.fetchone()
 #         if not plan:
 #             return {'success': False, 'message': f'Plan {plan_key} not found'}
-            
-#         # 2. 调用 PayPal Service 创建订单
+
+#         # 2. Call PayPal Service to create the order
 #         service = PaypalService()
 #         amount = f"{plan['price_cents'] / 100:.2f}"
 #         currency = plan['currency'].upper()
-        
+
 #         order = service.create_order(amount, currency)
-        
-#         # 获取 approve 链接
+
+#         # Extract the approval link
 #         approval_url = next((link['href'] for link in order['links'] if link['rel'] == 'approve'), None)
         
 #         return {
@@ -247,12 +246,12 @@ from database.utils.db_pool import get_db_connection
 #         return {'success': False, 'message': str(e)}
 #     finally:
 #         if cursor: cursor.close()
-#         if conn: conn.close()
+#         if conn: release_conn(conn)
 
 
 # def capture_paypal_order(order_id: str) -> Dict:
 #     """
-#     捕获 PayPal 订单
+#     Capture a PayPal order
 #     """
 #     try:
 #         service = PaypalService()
@@ -275,13 +274,13 @@ from database.utils.db_pool import get_db_connection
 
 # def get_checkout_session_details(session_id: str) -> Dict:
 #     """
-#     获取 Checkout Session 详情
-    
+#     Retrieve Checkout Session details
+#
 #     Args:
 #         session_id: Stripe Session ID
-    
+#
 #     Returns:
-#         dict: Session 详情
+#         dict: session details
 #     """
 #     try:
 #         session = stripe.checkout.Session.retrieve(
@@ -304,18 +303,18 @@ from database.utils.db_pool import get_db_connection
 
 
 # # ============================================================================
-# # 用户订阅查询
+# # User subscription queries
 # # ============================================================================
 
 # def get_user_active_subscription(user_id: int) -> Dict:
 #     """
-#     获取用户当前有效订阅
-    
+#     Retrieve the active subscription for a user
+#
 #     Args:
-#         user_id: 用户 ID
-    
+#         user_id: user ID
+#
 #     Returns:
-#         dict: 订阅详情
+#         dict: subscription details
 #     """
 #     conn = None
 #     cursor = None
@@ -358,7 +357,7 @@ from database.utils.db_pool import get_db_connection
 #                 'message': 'No active subscription'
 #             }
         
-#         # 计算剩余天数
+#         # Calculate remaining days
 #         days_remaining = None
 #         if subscription['end_at']:
 #             days_remaining = (subscription['end_at'] - datetime.now()).days
@@ -396,7 +395,7 @@ from database.utils.db_pool import get_db_connection
 
 
 # # ============================================================================
-# # 交易记录查询
+# # Transaction record queries
 # # ============================================================================
 
 # def get_user_transactions(
@@ -405,15 +404,15 @@ from database.utils.db_pool import get_db_connection
 #     status: Optional[str] = None
 # ) -> Dict:
 #     """
-#     获取用户交易记录
-    
+#     Retrieve transaction records for a user
+#
 #     Args:
-#         user_id: 用户 ID
-#         limit: 返回记录数
-#         status: 交易状态过滤
-    
+#         user_id: user ID
+#         limit: number of records to return
+#         status: filter by transaction status
+#
 #     Returns:
-#         dict: 交易记录列表
+#         dict: list of transaction records
 #     """
 #     conn = None
 #     cursor = None
@@ -421,7 +420,7 @@ from database.utils.db_pool import get_db_connection
 #         conn = _get_conn()
 #         cursor = conn.cursor(cursor_factory=RealDictCursor)
         
-#         # ✅ 使用新表 payments.stripe_transactions
+#         # ✅ Using the new payments.stripe_transactions table
 #         query = """
 #             SELECT 
 #                 id,
@@ -453,11 +452,11 @@ from database.utils.db_pool import get_db_connection
 #         cursor.execute(query, tuple(params))
 #         transactions = cursor.fetchall()
         
-#         # 格式化响应
+#         # Format response
 #         formatted_transactions = []
 #         for tx in transactions:
 #             formatted_transactions.append({
-#                 'transaction_id': tx['id'],  # ✅ 新表主键是 id
+#                 'transaction_id': tx['id'],  # ✅ primary key in new table is id
 #                 'user_id': tx['user_id'],
 #                 'plan_key': tx['plan_key'],
 #                 'amount_cents': tx['amount_cents'],
@@ -490,19 +489,19 @@ from database.utils.db_pool import get_db_connection
 #             conn.close()
 
 # # ============================================================================
-# # 订阅限制检查
+# # Subscription limit checks
 # # ============================================================================
 
 # def check_user_subscription_limit(user_id: int, limit_type: str) -> Dict:
 #     """
-#     检查用户订阅功能限制
-    
+#     Check a user's subscription feature limits
+#
 #     Args:
-#         user_id: 用户 ID
-#         limit_type: 限制类型 (news_analysis 或 social_analysis)
-    
+#         user_id: user ID
+#         limit_type: limit type (news_analysis or social_analysis)
+#
 #     Returns:
-#         dict: 限制检查结果
+#         dict: limit check result
 #     """
 #     subscription = get_user_active_subscription(user_id)
     
@@ -524,7 +523,7 @@ from database.utils.db_pool import get_db_connection
 #     else:
 #         return {'success': False, 'message': 'Invalid limit_type'}
     
-#     # -1 表示无限制
+#     # -1 means unlimited
 #     if limit == -1:
 #         return {
 #             'success': True,
@@ -534,9 +533,9 @@ from database.utils.db_pool import get_db_connection
 #             'message': 'Unlimited'
 #         }
     
-#     # TODO: 实际应查询用户本月使用次数
-#     # 这里简化处理
-#     used_count = 0  # 应从数据库查询
+#     # TODO: should query the user's actual usage count for the current month
+#     # Simplified for now
+#     used_count = 0  # should be queried from the database
 #     remaining = max(0, limit - used_count)
     
 #     return {
@@ -549,7 +548,7 @@ from database.utils.db_pool import get_db_connection
 
 
 # # ============================================================================
-# # Webhook 处理（简化版）
+# # Webhook handling (simplified)
 # # ============================================================================
 
 # def handle_stripe_webhook(payload: bytes, signature: str) -> Dict:
@@ -753,19 +752,19 @@ from database.utils.db_pool import get_db_connection
 #             conn.close()
 
 # # ============================================================================
-# # 订阅取消
+# # Subscription cancellation
 # # ============================================================================
 
 # def cancel_user_subscription(user_id: int, cancel_at_period_end: bool = True) -> Dict:
 #     """
-#     取消用户订阅
-    
+#     Cancel a user's subscription
+#
 #     Args:
-#         user_id: 用户 ID
-#         cancel_at_period_end: 是否在周期结束时取消
-    
+#         user_id: user ID
+#         cancel_at_period_end: whether to cancel at the end of the billing period
+#
 #     Returns:
-#         dict: 取消结果
+#         dict: cancellation result
 #     """
 #     conn = None
 #     cursor = None
@@ -773,7 +772,7 @@ from database.utils.db_pool import get_db_connection
 #         conn = _get_conn()
 #         cursor = conn.cursor(cursor_factory=RealDictCursor)
         
-#         # 查询用户当前订阅
+#         # Query the user's current subscription
 #         cursor.execute("""
 #             SELECT subscription_id, provider, provider_ref
 #             FROM payments.subscriptions
@@ -788,13 +787,13 @@ from database.utils.db_pool import get_db_connection
 #             return {'success': False, 'message': 'No active subscription found'}
         
 #         if subscription['provider'] == 'stripe' and subscription['provider_ref']:
-#             # 调用 Stripe API 取消订阅
+#             # Call the Stripe API to cancel the subscription
 #             stripe.Subscription.modify(
 #                 subscription['provider_ref'],
 #                 cancel_at_period_end=cancel_at_period_end
 #             )
         
-#         # 更新数据库
+#         # Update the database
 #         if cancel_at_period_end:
 #             cursor.execute("""
 #                 UPDATE payments.subscriptions
@@ -829,8 +828,8 @@ from database.utils.db_pool import get_db_connection
 
 
 """
-支付相关的数据库操作脚本
-类似 user_auth.py 和 data_ingestion.py 的设计模式
+Database operation scripts for payment processing
+Follows the same design pattern as user_auth.py and data_ingestion.py
 """
 
 import os
@@ -854,9 +853,11 @@ STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
 DEFAULT_COMMISSION_RATE = 0.30
 
 
+from database.db_pool import get_conn, release_conn
+
 def _get_conn():
     """Get database connection"""
-    return get_db_connection()
+    return get_conn()
 
 
 # ============================================================================
@@ -950,7 +951,7 @@ def record_paid_transaction_and_apply_commission(
         if cur:
             cur.close()
         if conn:
-            conn.close()
+            release_conn(conn)
 
 
 # ============================================================================
@@ -1031,7 +1032,7 @@ def get_available_plans() -> Dict:
         if cursor:
             cursor.close()
         if conn:
-            conn.close()
+            release_conn(conn)
 
 
 # ============================================================================
@@ -1129,7 +1130,7 @@ def create_stripe_checkout_session(
         if cursor:
             cursor.close()
         if conn:
-            conn.close()
+            release_conn(conn)
 
 
 def create_paypal_order(user_id: int, plan_key: str) -> Dict:
@@ -1169,7 +1170,7 @@ def create_paypal_order(user_id: int, plan_key: str) -> Dict:
         if cursor:
             cursor.close()
         if conn:
-            conn.close()
+            release_conn(conn)
 
 
 def capture_paypal_order(order_id: str) -> Dict:
@@ -1299,7 +1300,7 @@ def get_user_active_subscription(user_id: int) -> Dict:
         if cursor:
             cursor.close()
         if conn:
-            conn.close()
+            release_conn(conn)
 
 
 # ============================================================================
@@ -1379,7 +1380,7 @@ def get_user_transactions(user_id: int, limit: int = 10, status: Optional[str] =
         if cursor:
             cursor.close()
         if conn:
-            conn.close()
+            release_conn(conn)
 
 
 # ============================================================================
@@ -1390,14 +1391,14 @@ def get_user_transactions(user_id: int, limit: int = 10, status: Optional[str] =
 
 def check_user_subscription_limit(user_id: int, limit_type: str) -> Dict:
     """
-    检查用户订阅功能限制
-    
+    Check a user's subscription feature limits
+
     Args:
-        user_id: 用户 ID
-        limit_type: 限制类型 (news_analysis 或 social_analysis)
-    
+        user_id: user ID
+        limit_type: limit type (news_analysis or social_analysis)
+
     Returns:
-        dict: 限制检查结果
+        dict: limit check result
     """
     subscription = get_user_active_subscription(user_id)
     
@@ -1508,7 +1509,7 @@ def handle_stripe_webhook(payload: bytes, signature: str) -> Dict:
         if cursor:
             cursor.close()
         if conn:
-            conn.close()
+            release_conn(conn)
 
 
 def record_checkout_session(session_id: str) -> Dict:
@@ -1666,7 +1667,7 @@ def record_checkout_session(session_id: str) -> Dict:
         if cursor:
             cursor.close()
         if conn:
-            conn.close()
+            release_conn(conn)
 
 
 # ============================================================================
@@ -1735,4 +1736,4 @@ def cancel_user_subscription(user_id: int, cancel_at_period_end: bool = True) ->
         if cursor:
             cursor.close()
         if conn:
-            conn.close()
+            release_conn(conn)

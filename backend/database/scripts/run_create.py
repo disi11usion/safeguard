@@ -7,11 +7,12 @@
 """
 
 import os
+import psycopg2
 import subprocess
 import sys
 from dotenv import load_dotenv
+from urllib.parse import urlparse
 from pathlib import Path
-from database.utils.db_pool import get_db_connection
 from training_data_news import data_insert
 
 
@@ -48,8 +49,16 @@ def apply_admin_allowlist_roles(conn):
 # Connect to the PostgreSQL database using the DATABASE_URL from .env file
 def connect_db():
     load_dotenv()
+    database_url = os.getenv("DATABASE_URL")
     try:
-        conn = get_db_connection()
+        result = urlparse(database_url)
+        conn = psycopg2.connect(
+            host=result.hostname,
+            port=result.port,
+            dbname=str(result.path).lstrip('/'),
+            user=result.username,
+            password=result.password
+        )
         print("Database connection established.")
         return conn
     except Exception as e:
@@ -106,7 +115,8 @@ def run_schema(conn):
             "alter_20260117_influencer_admin.sql",
             "alter_20260216_referral_tracking.sql",
             "alter_20260216_influencer_codes.sql",
-            "alter_otp_persistence.sql",
+            "create_cache_schema.sql",       # L3 price snapshot table (idempotent)
+            "alter_otp_persistence.sql",     # OTP/2FA persistence table (idempotent)
         ]
         for update_name in update_files:
             update_path = schema_dir / update_name
@@ -130,7 +140,8 @@ def run_schema(conn):
         "alter_20260117_influencer_admin.sql",
         "alter_20260216_referral_tracking.sql",
         "alter_20260216_influencer_codes.sql",
-        "alter_otp_persistence.sql",
+        "create_cache_schema.sql",       # L3 price snapshot table (idempotent)
+        "alter_otp_persistence.sql",     # OTP/2FA persistence table (idempotent)
         "create_hypertables.sql",
         "archive_schema.sql",
         "create_index.sql",

@@ -1,3 +1,4 @@
+import asyncio
 import os
 import aiohttp
 from typing import Dict, Any, List, Optional
@@ -210,13 +211,14 @@ class YFinanceClient:
         end: str,
         interval: str = "1d"
     ) -> Dict[str, Any]:
-        try:
-            # Download data using yfinance
+        def _fetch():
             stock = yf.Ticker(ticker)
-            df = stock.history(start=start, end=end, interval=interval)
-            
+            return stock.history(start=start, end=end, interval=interval)
+
+        try:
+            df = await asyncio.to_thread(_fetch)
+
             if not df.empty:
-                # Convert DataFrame to list of dicts
                 results = []
                 for index, row in df.iterrows():
                     results.append({
@@ -229,7 +231,7 @@ class YFinanceClient:
                         "low": float(row["Low"]),
                         "volume": int(row["Volume"])
                     })
-                
+
                 return {
                     "success": True,
                     "ticker": ticker,
@@ -242,7 +244,7 @@ class YFinanceClient:
                     "error": "No data available for this ticker",
                     "data": []
                 }
-                
+
         except Exception as e:
             return {
                 "success": False,

@@ -5,7 +5,6 @@
 # Date: 26-06-2025
 """
 
-from database.utils.db_pool import get_db_connection
 import os
 import re
 import json
@@ -17,8 +16,10 @@ from .user_auth import get_user_id_from_token
 
 # Load environment variables from .env file
 load_dotenv()
+from database.db_pool import get_conn, release_conn
+
 def _open_conn():
-    conn = get_db_connection()
+    conn = get_conn()
     with conn.cursor() as cur:
         cur.execute("SET TIME ZONE 'UTC';")
     conn.commit()
@@ -247,7 +248,7 @@ def update_user_preference(access_token, selected_preference):
         if 'cursor' in locals() and cursor:
             cursor.close()
         if 'conn' in locals() and conn:
-            conn.close()
+            release_conn(conn)
 
 
 # Function to retrieve user preferences based on user's JWT token
@@ -255,7 +256,7 @@ def get_user_preferences(access_token):
     conn = None
     cursor = None
     try:
-        conn = get_db_connection()
+        conn = _open_conn()
         cursor = conn.cursor()
 
         user_id = get_user_id_from_token(access_token)
@@ -296,7 +297,7 @@ def get_user_preferences(access_token):
         if 'cursor' in locals() and cursor:
             cursor.close()
         if 'conn' in locals() and conn:
-            conn.close()   
+            release_conn(conn)   
 
 _ALLOWED_DASHBOARD_KEYS = {
     "default_exchange",
@@ -322,7 +323,7 @@ def set_dashboard_preference(access_token:str, prefs: Dict[str, Any]) -> Dict[st
             FROM auth.user_dashboard_preferences
             WHERE user_id = %s
             """,
-            (user_id)
+            (user_id,)
         )
         row = cursor.fetchone()
 
@@ -335,7 +336,7 @@ def set_dashboard_preference(access_token:str, prefs: Dict[str, Any]) -> Dict[st
             cursor.execute(
                 """
                 UPDATE auth.user_dashboard_preferences
-                SET preferences = %s, last_updated_at - NOW()
+                SET preferences = %s, last_updated_at = NOW()
                 WHERE user_id = %s
                 """,
                 (Json(current), user_id),
@@ -343,7 +344,7 @@ def set_dashboard_preference(access_token:str, prefs: Dict[str, Any]) -> Dict[st
         else:
             cursor.execute(
                 """
-                INSERT INTO auth.user_dashboard_prefernces (user_id, preferences)
+                INSERT INTO auth.user_dashboard_preferences (user_id, preferences)
                 VALUES (%s, %s)
                 """,
                 (user_id, Json(clean_prefs)),
@@ -357,7 +358,7 @@ def set_dashboard_preference(access_token:str, prefs: Dict[str, Any]) -> Dict[st
         return {"success": False, "message": str(e)}
     finally:
         if cursor: cursor.close()
-        if conn: conn.close()
+        if conn: release_conn(conn)
 
 def get_dashboard_preferences(access_token: str) -> Dict[str, Any]:
     conn = None
@@ -384,7 +385,7 @@ def get_dashboard_preferences(access_token: str) -> Dict[str, Any]:
         return {"success": False, "message": str(e)}
     finally:
         if cursor: cursor.close()
-        if conn: conn.close()
+        if conn: release_conn(conn)
 _ALLOWED_COMPONENT_KEYS: Iterable[str] = (
     "price_trend",
     "volume_heatmap",
@@ -428,27 +429,37 @@ def set_component_preferences(access_token:str, component_key:str, settings:Dict
         if row:
             current = row[0] or {}
             if not isinstance(current, dict):
-                current ={}
+                current = {}
             current.update(clean_settings)
 
             cursor.execute(
                 """
-                UPDATE INTO auth.user_component_preferences (user_id, component_key, settings)
-                VALUES (%s, %s)
+                UPDATE auth.user_component_preferences
+                SET settings = %s
+                WHERE user_id = %s AND component_key = %s
+                """,
+                (Json(current), user_id, component_key),
+            )
+        else:
+            cursor.execute(
+                """
+                INSERT INTO auth.user_component_preferences (user_id, component_key, settings)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (user_id, component_key) DO UPDATE SET settings = EXCLUDED.settings
                 """,
                 (user_id, component_key, Json(clean_settings)),
             )
-            conn.commit()
-            return {"success": True, "message": "Component Preferneces saved"}
+        conn.commit()
+        return {"success": True, "message": "Component preferences saved."}
     except Exception as e:
         if conn: conn.rollback()
-        print(f"Error saving component preferneces: {e}")
+        print(f"Error saving component preferences: {e}")
         return {"success": False, "message": str(e)}
     finally:
         if cursor:
             cursor.close()
         if conn:
-            conn.close()
+            release_conn(conn)
 def get_component_preferences(access_token:str, component_key:Optional[str]=None) -> Dict[str, Any]:
     conn = None
     cursor = None
@@ -474,7 +485,7 @@ def get_component_preferences(access_token:str, component_key:Optional[str]=None
         else:
             cursor.execute(
                 """
-                SELECT componet_key, settings
+                SELECT component_key, settings
                 FROM auth.user_component_preferences
                 WHERE user_id = %s
                 """,
@@ -488,4 +499,4 @@ def get_component_preferences(access_token:str, component_key:Optional[str]=None
         return {"success": False, "message": str(e)}
     finally:
         if cursor: cursor.close()
-        if conn: conn.close()
+        if conn: release_conn(conn)
