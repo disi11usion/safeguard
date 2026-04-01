@@ -132,7 +132,7 @@ export default function SocialSection({ coin, preferredCoins = [], selectedAsset
     const fetchSummary = async () => {
       try {
         const response = await apiService.makeRequest(
-          '/social/sentiment/summary?window_hours=24&limit=100',
+          `/social/sentiment/summary?window_hours=24&limit=100&market=${selectedAsset?.category || 'crypto'}`,
           { method: 'GET' },
           '/api'
         );

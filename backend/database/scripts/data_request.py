@@ -559,7 +559,17 @@ def get_curr_social(last_day=False):
         if "conn" in locals() and conn:
             release_conn(conn)
 
-def get_social_posts(start_time=None, end_time=None, limit=1000):
+MARKET_SUBREDDIT_MAP = {
+    "crypto": ["bitcoin", "ethereum", "cryptocurrency", "cryptomarkets", "cryptocurrencytrading",
+               "bitcoinmarkets", "solana", "cryptomoonshots", "cryptotechnology"],
+    "stock":  ["stocks", "wallstreetbets", "investing", "stockmarket",
+               "aapl", "nvda_stock", "teslainvestorsclub", "securityanalysis"],
+    "forex":  ["forex", "forextrading"],
+    "gold":   ["gold", "commodities", "wallstreetsilver"],
+    "futures": ["futurestrading", "commodities"],
+}
+
+def get_social_posts(start_time=None, end_time=None, limit=1000, market=None):
     conn = None
     cursor = None
     try:
@@ -574,6 +584,13 @@ def get_social_posts(start_time=None, end_time=None, limit=1000):
         if end_time:
             where.append("posted_at <= %s")
             params.append(end_time)
+
+        if market and market in MARKET_SUBREDDIT_MAP:
+            subs = MARKET_SUBREDDIT_MAP[market]
+            like_clauses = [f"LOWER(url) LIKE %s" for _ in subs]
+            where.append("(" + " OR ".join(like_clauses) + ")")
+            for sub in subs:
+                params.append(f"%reddit.com/r/{sub}%")
 
         sql = f"""
             SELECT

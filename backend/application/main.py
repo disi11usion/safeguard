@@ -1145,22 +1145,24 @@ async def get_social_sentiment_summary(
     time_from: Optional[str] = None,
     time_to: Optional[str] = None,
     window_hours: int = 24,
-    limit: int = 1000
+    limit: int = 1000,
+    market: Optional[str] = None
 ):
     endpoint = "GET /api/social/sentiment/summary"
     log_request(logger, endpoint, {
         "time_from": time_from,
         "time_to": time_to,
         "window_hours": window_hours,
-        "limit": limit
+        "limit": limit,
+        "market": market
     })
 
     def parse_time(value: Optional[str]) -> Optional[datetime]:
         if not value:
             return None
-        if re.match(r"^\\d{8}T\\d{6}$", value):
+        if re.match(r"^\d{8}T\d{6}$", value):
             return datetime.strptime(value, "%Y%m%dT%H%M%S").replace(tzinfo=timezone.utc)
-        if re.match(r"^\\d{8}T\\d{4}$", value):
+        if re.match(r"^\d{8}T\d{4}$", value):
             return datetime.strptime(value, "%Y%m%dT%H%M").replace(tzinfo=timezone.utc)
         try:
             return datetime.fromisoformat(value.replace("Z", "+00:00"))
@@ -1182,18 +1184,48 @@ async def get_social_sentiment_summary(
             data_request.get_social_posts,
             start_time=start_dt,
             end_time=end_dt,
-            limit=effective_limit
+            limit=effective_limit,
+            market=market
         )
+        fallback_used = False
         if posts_df is None or posts_df.empty:
-            return {
-                "success": False,
-                "message": "No social data found for the requested window",
-                "time_from": start_dt.isoformat(),
-                "time_to": end_dt.isoformat()
+            # Real-time Reddit fallback instead of returning error
+            FALLBACK_SUBREDDITS = {
+                "crypto":  ["CryptoCurrency", "bitcoin", "ethereum"],
+                "stock":   ["stocks", "wallstreetbets", "investing"],
+                "forex":   ["Forex"],
+                "gold":    ["Gold", "commodities"],
+                "futures": ["FuturesTrading"],
             }
+            subs = FALLBACK_SUBREDDITS.get(market, ["CryptoCurrency", "stocks", "Forex", "Gold"])
+            live_posts = []
+            for sub in subs:
+                try:
+                    resp = await reddit_client.get_subreddit_posts(sub, sort="hot", limit=15, timeframe="day")
+                    if resp.get("success") and resp.get("posts"):
+                        for p in resp["posts"]:
+                            live_posts.append({
+                                "title": p.get("title", ""),
+                                "content": p.get("content", ""),
+                                "comments": p.get("comments", []),
+                                "posted_at": p.get("created_utc", ""),
+                            })
+                except Exception as sub_err:
+                    logger.warning(f"Reddit fallback failed for r/{sub}: {sub_err}")
 
-        posts = posts_df.to_dict(orient="records")
-        cache_key = (start_dt.isoformat(), end_dt.isoformat(), effective_limit, len(posts))
+            if not live_posts:
+                return {
+                    "success": False,
+                    "message": "No social data found for the requested window",
+                    "time_from": start_dt.isoformat(),
+                    "time_to": end_dt.isoformat()
+                }
+            posts = live_posts
+            fallback_used = True
+        else:
+            posts = posts_df.to_dict(orient="records")
+
+        cache_key = (start_dt.isoformat(), end_dt.isoformat(), effective_limit, len(posts), market or "all")
         try:
             summary = await asyncio.to_thread(
                 social_sentiment_client.summarize_posts,
@@ -1213,7 +1245,9 @@ async def get_social_sentiment_summary(
             "time_from": start_dt.isoformat(),
             "time_to": end_dt.isoformat(),
             "window_hours": window_hours,
-            "limit": effective_limit
+            "limit": effective_limit,
+            "market": market,
+            "provider": "Reddit Live Fallback" if fallback_used else "Database"
         }
         result.update(summary)
 

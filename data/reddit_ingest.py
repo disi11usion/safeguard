@@ -38,14 +38,25 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 SUBREDDITS = [
     s.strip() for s in os.getenv(
         "REDDIT_SUBREDDITS",
+        # --- crypto subreddits ---
         "CryptoCurrency,bitcoin,ethereum,CryptoMarkets,CryptoCurrencyTrading,"
-        "BitcoinMarkets,solana,CryptoMoonShots,CryptoTechnology,Stock,Gold,Forex,ETH,BTC"
-        "XRP,SOL,USDC,TRX,DOGE,ADA,WBTC,WBETH,LINK,BCH,USDE,XLM,SUI,HBAR" 
-        "ZEC,AVAX,LTC,XMR,SHIB,TON,DOT,TAO,WLFI,UNI,AAVE,USD1,ICP,ENA,PEPENEAR"
-        "ETC,ASTER,ONDO,APT,POL,WLD,DASH,ARB,TRUMP,BNSOL,PUMP,ALGO,BFUSD,PAXG,ATOM,VET"
-        "SKY,JUP,QNT,NEXO,SEI,FDUSD,FIL,BONK,RENDER,PENGU,VIRTUAL,MORPHO,IMX,CAKE,OP,TIA"
-        "LDO,STX,INJ,DCR,CRV,GRT,FLOKI,XTZ,FET,2Z,PYTH,IOTA,XPL,KAIA,ETHFI,TUSD,TWT,STRK" 
-        "S,CFX,PENDLE,SAND,SYRUP,ENS,ZK,ARK,WIF,JASMY,THETA,SUN,HNT,GALA,A,MANA,FLOW"
+        "BitcoinMarkets,solana,CryptoMoonShots,CryptoTechnology,"
+        # --- crypto tickers ---
+        "ETH,BTC,XRP,SOL,USDC,TRX,DOGE,ADA,WBTC,WBETH,LINK,BCH,USDE,XLM,SUI,HBAR,"
+        "ZEC,AVAX,LTC,XMR,SHIB,TON,DOT,TAO,WLFI,UNI,AAVE,USD1,ICP,ENA,PEPE,NEAR,"
+        "ETC,ASTER,ONDO,APT,POL,WLD,DASH,ARB,TRUMP,BNSOL,PUMP,ALGO,BFUSD,PAXG,ATOM,VET,"
+        "SKY,JUP,QNT,NEXO,SEI,FDUSD,FIL,BONK,RENDER,PENGU,VIRTUAL,MORPHO,IMX,CAKE,OP,TIA,"
+        "LDO,STX,INJ,DCR,CRV,GRT,FLOKI,XTZ,FET,2Z,PYTH,IOTA,XPL,KAIA,ETHFI,TUSD,TWT,STRK,"
+        "S,CFX,PENDLE,SAND,SYRUP,ENS,ZK,ARK,WIF,JASMY,THETA,SUN,HNT,GALA,A,MANA,FLOW,"
+        # --- stocks subreddits ---
+        "stocks,wallstreetbets,investing,stockmarket,StockMarket,"
+        "AAPL,NVDA_Stock,teslainvestorsclub,SecurityAnalysis,"
+        # --- forex subreddits ---
+        "Forex,ForexTrading,"
+        # --- gold / commodities subreddits ---
+        "Gold,commodities,wallstreetsilver,"
+        # --- futures subreddits ---
+        "FuturesTrading"
     ).split(",") if s.strip()
 ]
 SORT = os.getenv("REDDIT_SORT", "top")             # hot/new/top/rising

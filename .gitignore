@@ -66,3 +66,6 @@ datasets/
 # Session files
 data/session.session
 *.session.env
+
+# Local tool config
+.claude/
