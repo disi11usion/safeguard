@@ -496,7 +496,7 @@ const Dashboard = () => {
 
                   {/* Row 3.6: General Social Sentiment Overview (Task 2) */}
                   <div className="w-full">
-                    <SocialSentimentOverview windowHours={24} />
+                    <SocialSentimentOverview windowHours={24} market={selectedAsset?.category || 'crypto'} />
                   </div>
 
                   {/* Row 4: Sentiment Analysis */}

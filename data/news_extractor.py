@@ -135,6 +135,28 @@ for c in assets:
         COINS.append(ticker)
         COIN_NAMES.append(c['name'])
 
+# Extend with non-crypto tickers so tag_coins() can recognise stocks, forex, commodities
+_EXTRA_TICKERS = {
+    # stocks
+    "AAPL": "Apple", "GOOGL": "Alphabet", "MSFT": "Microsoft", "TSLA": "Tesla",
+    "AMZN": "Amazon", "NVDA": "NVIDIA", "META": "Meta", "JPM": "JPMorgan",
+    "NFLX": "Netflix", "AMD": "AMD", "INTC": "Intel", "DIS": "Disney",
+    "BA": "Boeing", "V": "Visa", "WMT": "Walmart", "KO": "Coca-Cola",
+    # forex
+    "EUR": "Euro", "GBP": "British Pound", "JPY": "Japanese Yen",
+    "AUD": "Australian Dollar", "CAD": "Canadian Dollar", "CHF": "Swiss Franc",
+    "CNY": "Chinese Yuan", "NZD": "New Zealand Dollar",
+    # commodities / gold
+    "GOLD": "Gold", "XAU": "Gold", "SILVER": "Silver", "XAG": "Silver",
+    "OIL": "Crude Oil", "WTI": "WTI Oil", "BRENT": "Brent Oil",
+    "NATGAS": "Natural Gas", "COPPER": "Copper",
+}
+for _ticker, _name in _EXTRA_TICKERS.items():
+    if _ticker not in seen:
+        seen.add(_ticker)
+        COINS.append(_ticker)
+        COIN_NAMES.append(_name)
+
 def get_crypto_ids_for_coins(coins_str, ticker_to_id):
     tickers = [c.strip() for c in coins_str.split(',') if c.strip()]
     ids = [str(ticker_to_id.get(ticker, "")) for ticker in tickers]

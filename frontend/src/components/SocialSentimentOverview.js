@@ -9,7 +9,7 @@ import { apiService } from '../services/api';
  * 展示社媒评论 + 正文的通用平均情绪 (Task 2 实现)
  * 使用 /api/social/sentiment/summary 端点
  */
-export default function SocialSentimentOverview({ windowHours = 24 }) {
+export default function SocialSentimentOverview({ windowHours = 24, market = 'crypto' }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [summary, setSummary] = useState(null);
@@ -24,7 +24,7 @@ export default function SocialSentimentOverview({ windowHours = 24 }) {
         const timeout = setTimeout(() => controller.abort(), 60000);
 
         const response = await apiService.makeRequest(
-          `/social/sentiment/summary?window_hours=${windowHours}&limit=100`,
+          `/social/sentiment/summary?window_hours=${windowHours}&limit=100&market=${market}`,
           { method: 'GET', signal: controller.signal },
           '/api'
         );
@@ -47,7 +47,7 @@ export default function SocialSentimentOverview({ windowHours = 24 }) {
     };
 
     fetchSocialSentiment();
-  }, [windowHours]);
+  }, [windowHours, market]);
 
   if (loading) {
     return (

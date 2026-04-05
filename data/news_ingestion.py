@@ -128,7 +128,7 @@ def fetch_from_newsdata() -> List[Dict[str, Any]]:
     try:
         resp = requests.get(
             "https://newsdata.io/api/1/news",
-            params={"apikey": NEWSDATA_API_KEY, "q": "crypto", "language": "en"},
+            params={"apikey": NEWSDATA_API_KEY, "q": "crypto OR stocks OR forex OR gold OR futures", "language": "en", "category": "business"},
             timeout=10
         )
         resp.raise_for_status()
@@ -142,7 +142,7 @@ def fetch_from_newsapi() -> List[Dict[str, Any]]:
     try:
         resp = requests.get(
             "https://newsapi.org/v2/everything",
-            params={"apiKey": NEWSAPI_API_KEY, "q": "crypto", "pageSize": 100, "sortBy": "publishedAt"},
+            params={"apiKey": NEWSAPI_API_KEY, "q": "cryptocurrency OR stock market OR forex OR gold price OR futures", "pageSize": 100, "sortBy": "publishedAt"},
             timeout=10
         )
         resp.raise_for_status()
@@ -154,7 +154,7 @@ def fetch_from_newsapi() -> List[Dict[str, Any]]:
 
 def fetch_from_gnews() -> List[Dict[str, Any]]:
     try:
-        articles = _gnews.get_news('crypto')
+        articles = _gnews.get_news('finance stock forex gold crypto')
         return [{"title": a['title'], "url": a['url'], "publishedAt": a.get('published date')} for a in articles]
     except Exception as e:
         logging.error(f"gnews fetch error: {e}")
@@ -165,7 +165,7 @@ def fetch_from_mediastack() -> List[Dict[str, Any]]:
     try:
         resp = requests.get(
             "http://api.mediastack.com/v1/news",
-            params={"access_key": MEDIASTACK_API_KEY, "keywords": "crypto", "languages": "en", "limit": 100},
+            params={"access_key": MEDIASTACK_API_KEY, "keywords": "crypto,stocks,forex,gold,futures", "languages": "en", "limit": 100},
             timeout=10
         )
         resp.raise_for_status()
@@ -243,10 +243,18 @@ def save_csv(items: List[Dict], source: str, source_id, job_id):
 
 def main():
     rss_feeds = {
+        # crypto
         "cointelegraph": "https://cointelegraph.com/rss",
         "cryptoslate":   "https://cryptoslate.com/feed/",
         "theblock":      "https://www.theblock.co/rss.xml",
-        "decrypt":       "https://decrypt.co/feed"
+        "decrypt":       "https://decrypt.co/feed",
+        # stocks / general finance
+        "marketwatch":   "https://feeds.content.dowjones.io/public/rss/mw_topstories",
+        "investing_rss": "https://www.investing.com/rss/news.rss",
+        # forex
+        "forexlive":     "https://www.forexlive.com/feed",
+        # gold / commodities
+        "kitco":         "https://www.kitco.com/rss/kitco-news.xml",
     }
 
     source_mapping = {
@@ -254,6 +262,10 @@ def main():
         "cryptoslate":   "CryptoSlate",
         "theblock":      "The Block",
         "decrypt":       "Decrypt",
+        "marketwatch":   "MarketWatch",
+        "investing_rss": "Investing.com",
+        "forexlive":     "ForexLive",
+        "kitco":         "Kitco",
         "newsdata":   "NewsData",
         "newsapi":    "NewsAPI",
         "gnews":      "GNews",
