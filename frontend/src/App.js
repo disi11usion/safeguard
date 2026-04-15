@@ -29,6 +29,7 @@ import ProfileSection from './pages/ProfileSection';
 import GovernmentPage from './pages/GovernmentPage';
 import NewsPage from './pages/NewsPage';
 import PortfolioPage from './pages/PortfolioPage';
+import SocialMediaPage from './pages/SocialMediaPage';
 import LegalAccessGate from "./components/LegalAccessGate";
 
 
@@ -86,6 +87,7 @@ function AppShell() {
           <Route path="/government" element={<GovernmentPage />} />
           <Route path="/news" element={<NewsPage />} />
           <Route path="/portfolio" element={<PortfolioPage />} />
+          <Route path="/social" element={<SocialMediaPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
           <Route path="/calendar" element={
             <ProtectedRoute>
