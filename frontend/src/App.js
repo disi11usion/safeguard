@@ -27,6 +27,8 @@ import PaymentCancel from './pages/PaymentCancel.jsx';
 import AdminPanel from './pages/AdminPanel.jsx';
 import ProfileSection from './pages/ProfileSection';
 import GovernmentPage from './pages/GovernmentPage';
+import NewsPage from './pages/NewsPage';
+import PortfolioPage from './pages/PortfolioPage';
 import LegalAccessGate from "./components/LegalAccessGate";
 
 
@@ -82,6 +84,8 @@ function AppShell() {
           <Route path="/analysis/market-shake" element={<MarketShakePage />} />
           <Route path="/market-shake" element={<MarketShakePage />} />
           <Route path="/government" element={<GovernmentPage />} />
+          <Route path="/news" element={<NewsPage />} />
+          <Route path="/portfolio" element={<PortfolioPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
           <Route path="/calendar" element={
             <ProtectedRoute>
