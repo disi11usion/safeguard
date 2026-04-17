@@ -118,14 +118,9 @@ def send_otp(email: str) -> Dict[str, Any]:
     code_hash = _hash_code(email, code)
 
     try:
-<<<<<<< HEAD
-        with conn.cursor() as cur:
-            # Check rate limit (FOR UPDATE locks the row to prevent concurrent bypasses)
-=======
         with get_cursor() as cur:
             # Lock the row for this email (if it exists) so that two concurrent
             # send_otp calls cannot both pass the rate-limit check simultaneously.
->>>>>>> e79dedbdbaa5ead1516f33d473f4168442f7a017
             cur.execute(
                 "SELECT last_sent_at FROM auth.otp_codes WHERE email = %s FOR UPDATE",
                 (email.lower(),),
@@ -191,12 +186,6 @@ def verify_otp(email: str, code: str) -> Dict[str, Any]:
     row), finds no row and correctly returns 'OTP not found or expired'.
     """
     try:
-<<<<<<< HEAD
-        with conn.cursor() as cur:
-            # FOR UPDATE locks the row to prevent concurrent race conditions
-            cur.execute(
-                "SELECT code_hash, expires_at, attempts_left FROM auth.otp_codes WHERE email = %s FOR UPDATE",
-=======
         with get_cursor() as cur:
             cur.execute(
                 """
@@ -205,7 +194,6 @@ def verify_otp(email: str, code: str) -> Dict[str, Any]:
                 WHERE email = %s AND verified = FALSE
                 FOR UPDATE
                 """,
->>>>>>> e79dedbdbaa5ead1516f33d473f4168442f7a017
                 (email.lower(),),
             )
             row = cur.fetchone()
@@ -281,12 +269,7 @@ def is_verified(email: str) -> bool:
     Cleans up the row on the spot if the TTL has already lapsed.
     """
     try:
-<<<<<<< HEAD
-        with conn.cursor() as cur:
-            # FOR UPDATE locks the row to prevent concurrent race conditions
-=======
         with get_cursor() as cur:
->>>>>>> e79dedbdbaa5ead1516f33d473f4168442f7a017
             cur.execute(
                 "SELECT verified, expires_at FROM auth.otp_codes WHERE email = %s FOR UPDATE",
                 (email.lower(),),
