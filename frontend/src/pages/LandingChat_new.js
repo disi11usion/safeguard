@@ -2,6 +2,7 @@
 import { useNavigate, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { apiService } from '../services/api';
+import { useAuth } from '../context/AuthContext';
 
 import { 
   FaBitcoin, FaRobot, FaShieldAlt, FaChartLine, FaBrain, FaBell, FaSearch, FaArrowRight,
@@ -428,6 +429,24 @@ function SentimentCard({ card }) {
  * -------------------------------------- */
 export default function LandingChat_new() {
   const navigate = useNavigate();
+  //  Fetch user info to determine if we need to prompt login or redirect to dashboard in certain cases
+  const { user } = useAuth();
+  const handleGoToDashboard = () => {
+    if (!user) {
+      navigate('/dashboard');
+      return;
+    }
+    if (user.role === 'admin') {
+      navigate('/admin');
+      return;
+    }
+    if (user.user_type === 'special') {
+      navigate('/government'); 
+    } else {
+      navigate('/dashboard');
+    }
+  };
+
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -854,6 +873,16 @@ export default function LandingChat_new() {
           ? 'flex items-center justify-center py-12 md:py-16 min-h-[calc(100dvh-14rem)]' // 首页状态：垂直居中
           : 'flex justify-start pb-8' // 聊天状态：从顶部开始
       }`}>
+        {/* -------------- Persistent "Go to Dashboard" button -------------- */}
+         <div className="absolute top-6 right-4 lg:right-0 z-50">
+        <button
+          onClick={handleGoToDashboard}
+          className="px-5 py-2.5 bg-[#0f152e] hover:bg-[#1a2142] border border-blue-500/30 text-white rounded-xl text-sm font-semibold transition-all duration-300 shadow-[0_0_20px_rgba(59,130,246,0.4)] hover:shadow-[0_0_30px_rgba(59,130,246,0.6)] flex items-center gap-2 border border-blue-400/30 backdrop-blur-md"
+        >
+          Go to Dashboard <FaArrowRight className="text-xs" />
+        </button>
+      </div>
+
         {/* -------------- Empty state (web) -------------- */}
         {messages.length === 0 ? (
           <div className="flex flex-col items-center w-full max-w-4xl mx-auto text-center">
