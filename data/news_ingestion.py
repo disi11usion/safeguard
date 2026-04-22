@@ -243,18 +243,31 @@ def save_csv(items: List[Dict], source: str, source_id, job_id):
 
 def main():
     rss_feeds = {
-        # crypto
+        # ── crypto ────────────────────────────────────
         "cointelegraph": "https://cointelegraph.com/rss",
         "cryptoslate":   "https://cryptoslate.com/feed/",
         "theblock":      "https://www.theblock.co/rss.xml",
         "decrypt":       "https://decrypt.co/feed",
-        # stocks / general finance
+        "bitcoinmag":    "https://bitcoinmagazine.com/.rss/full/",
+        "coindesk":      "https://www.coindesk.com/arc/outboundfeeds/rss/",
+        # ── stocks / general finance ──────────────────
         "marketwatch":   "https://feeds.content.dowjones.io/public/rss/mw_topstories",
-        "investing_rss": "https://www.investing.com/rss/news.rss",
-        # forex
+        "cnbc":          "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=100003114",
+        "yahoo_finance": "https://finance.yahoo.com/news/rssindex",
+        "reuters_biz":   "https://www.reutersagency.com/feed/?best-topics=business-finance",
+        "seekingalpha":  "https://seekingalpha.com/market_currents.xml",
+        "benzinga":      "https://www.benzinga.com/feed",
+        # ── forex ─────────────────────────────────────
         "forexlive":     "https://www.forexlive.com/feed",
-        # gold / commodities
+        "dailyfx":       "https://www.dailyfx.com/feeds/market-news",
+        "fxstreet":      "https://www.fxstreet.com/rss",
+        # ── gold / commodities ────────────────────────
         "kitco":         "https://www.kitco.com/rss/kitco-news.xml",
+        "oilprice":      "https://oilprice.com/rss/main",
+        # ── macro / global economy ────────────────────
+        "bloomberg_mkts":"https://feeds.bloomberg.com/markets/news.rss",
+        "ft_markets":    "https://www.ft.com/markets?format=rss",
+        "economist":     "https://www.economist.com/finance-and-economics/rss.xml",
     }
 
     source_mapping = {
@@ -262,10 +275,22 @@ def main():
         "cryptoslate":   "CryptoSlate",
         "theblock":      "The Block",
         "decrypt":       "Decrypt",
+        "bitcoinmag":    "Bitcoin Magazine",
+        "coindesk":      "CoinDesk",
         "marketwatch":   "MarketWatch",
-        "investing_rss": "Investing.com",
+        "cnbc":          "CNBC",
+        "yahoo_finance": "Yahoo Finance",
+        "reuters_biz":   "Reuters",
+        "seekingalpha":  "Seeking Alpha",
+        "benzinga":      "Benzinga",
         "forexlive":     "ForexLive",
+        "dailyfx":       "DailyFX",
+        "fxstreet":      "FXStreet",
         "kitco":         "Kitco",
+        "oilprice":      "OilPrice",
+        "bloomberg_mkts":"Bloomberg",
+        "ft_markets":    "Financial Times",
+        "economist":     "The Economist",
         "newsdata":   "NewsData",
         "newsapi":    "NewsAPI",
         "gnews":      "GNews",

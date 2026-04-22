@@ -159,7 +159,7 @@ export default function SocialSection({ coin, preferredCoins = [], selectedAsset
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [selectedAsset]);
 
   // Reset expand state on asset change (nice UX)
   useEffect(() => {
@@ -169,12 +169,26 @@ export default function SocialSection({ coin, preferredCoins = [], selectedAsset
   // Helper: check if a post is related to a coin/asset symbol (strict whole word match)
   const isRelatedToCoin = (post, coinObj) => {
     if (selectedAsset) {
+      // For non-crypto assets (stock/forex/gold/futures), the subreddit is already
+      // topic-specific (r/stocks, r/Forex, r/Gold). Post titles rarely contain the
+      // full ticker or company name, so strict filtering yields zero results.
+      // Trust the subreddit topicality and show all posts.
+      if (selectedAsset.category && selectedAsset.category.toLowerCase() !== 'crypto') {
+        return true;
+      }
+
       const termsToMatch = [];
       if (selectedAsset.ticker) termsToMatch.push(selectedAsset.ticker.toUpperCase());
-      if (selectedAsset.name) termsToMatch.push(selectedAsset.name.toLowerCase());
+      if (selectedAsset.name) {
+        // Extract primary brand name (e.g. "Amazon.com Inc." → "amazon")
+        const brand = selectedAsset.name.split(/[\s.,]/)[0]?.trim().toLowerCase();
+        if (brand && brand.length > 2) termsToMatch.push(brand);
+      }
       if (termsToMatch.length === 0) return false;
 
-      const regex = new RegExp(`(^|[^a-zA-Z0-9])(${termsToMatch.join('|')})([^a-zA-Z0-9]|$)`, 'i');
+      // Escape regex-special chars in terms to avoid wildcard bugs
+      const escaped = termsToMatch.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+      const regex = new RegExp(`(^|[^a-zA-Z0-9])(${escaped.join('|')})([^a-zA-Z0-9]|$)`, 'i');
       return regex.test(post.title) || regex.test(post.content);
     }
 

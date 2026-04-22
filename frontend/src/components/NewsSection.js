@@ -302,41 +302,11 @@ export default function NewsSection({ coin, preferredCoins = [], isStock = false
   };
 
   const isRelatedToCoin = (item, coinObj) => {
-    if (!coinObj) return false;
-
-    // Check ticker_sentiments first (works for all market types: crypto, stock, forex)
-    if (item.tickerSentiments && Array.isArray(item.tickerSentiments)) {
-      const symbol = coinObj.symbol?.toUpperCase();
-      if (symbol) {
-        return item.tickerSentiments.some(ts => {
-          const ticker = ts.ticker?.toUpperCase() || '';
-          
-          // For forex: match "FOREX:EUR" with "EUR/USD" or "EUR"
-          if (isForex && ticker.startsWith('FOREX:')) {
-            const tickerCurrency = ticker.replace('FOREX:', '');
-            const baseCurrency = symbol.split('/')[0];
-            return tickerCurrency === baseCurrency;
-          }
-          
-          // For crypto: match "CRYPTO:BTC" with "BTC" or "BTCUSD"
-          if (!isStock && !isForex && ticker.startsWith('CRYPTO:')) {
-            const cryptoSymbol = ticker.replace('CRYPTO:', '');
-            return cryptoSymbol === symbol || cryptoSymbol === symbol.replace('USD', '');
-          }
-          
-          // For stock or exact match: direct comparison
-          return ticker === symbol;
-        });
-      }
-    }
-
-    // Fallback to headline/source matching if ticker_sentiments not available
-    const termsToMatch = [];
-    if (coinObj.symbol) termsToMatch.push(coinObj.symbol.toUpperCase());
-    if (coinObj.name) termsToMatch.push(coinObj.name.toLowerCase());
-    if (termsToMatch.length === 0) return false;
-    const regex = new RegExp(`(^|[^a-zA-Z0-9])(${termsToMatch.join('|')})([^a-zA-Z0-9]|$)`, 'i');
-    return regex.test(item.headline) || regex.test(item.source);
+    // News is a shared global feed — all news is relevant to all assets.
+    // This is by design: financial news often covers cross-market topics
+    // (e.g., "Fed rate decision impacts stocks, crypto, and gold"),
+    // and filtering by ticker would exclude valuable cross-market context.
+    return true;
   };
 
   const isRelatedToAnyPreferred = (item) => {

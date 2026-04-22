@@ -537,10 +537,11 @@ def update_crypto_ranks(data):
         cursor.execute("""
             SELECT crypto_id
             FROM reference.cryptocurrencies
-            WHERE is_active = TRUE
+            WHERE is_active = TRUE AND category = 'crypto'
         """)
 
-        # Updating old coins as inactive if no data retrieved for them.
+        # Updating old crypto coins as inactive if no data retrieved for them.
+        # Only affect category='crypto' — stock/forex/futures must not be deactivated by Binance sync.
         active_coins = cursor.fetchall()
         if active_coins:
             active_coins = set(coin[0] for coin in active_coins)
@@ -550,10 +551,11 @@ def update_crypto_ranks(data):
                 print(f"Updating coins: {update_coins}")
                 cursor.execute("""
                     UPDATE reference.cryptocurrencies
-                    SET 
-                        is_active = FALSE, 
+                    SET
+                        is_active = FALSE,
                         last_updated_at = NOW()
                     WHERE crypto_id = ANY(%s)
+                    AND category = 'crypto'
                 """, (list(update_coins),))
 
         conn.commit()

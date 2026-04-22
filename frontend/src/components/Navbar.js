@@ -253,6 +253,24 @@ const Navbar = () => {
                   </Button>
                 </motion.div>
 
+                <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                  <Button variant="secondary" onClick={() => navigate('/news')}>
+                    News
+                  </Button>
+                </motion.div>
+
+                <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                  <Button variant="secondary" onClick={() => navigate('/portfolio')}>
+                    Portfolio
+                  </Button>
+                </motion.div>
+
+                <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                  <Button variant="secondary" onClick={() => navigate('/social')}>
+                    Social
+                  </Button>
+                </motion.div>
+
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
@@ -428,6 +446,15 @@ const Navbar = () => {
                       </Button>
                       <Button variant="secondary" onClick={() => { navigate('/government'); setIsOpen(false); }} className="w-full">
                         Government
+                      </Button>
+                      <Button variant="secondary" onClick={() => { navigate('/news'); setIsOpen(false); }} className="w-full">
+                        News
+                      </Button>
+                      <Button variant="secondary" onClick={() => { navigate('/portfolio'); setIsOpen(false); }} className="w-full">
+                        Portfolio
+                      </Button>
+                      <Button variant="secondary" onClick={() => { navigate('/social'); setIsOpen(false); }} className="w-full">
+                        Social
                       </Button>
                       <Button variant="secondary" onClick={() => { navigate('/preferences'); setIsOpen(false); }} className="w-full justify-start">
                         <FaCog />
