@@ -1,12 +1,12 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Shield, Plus, Upload, TrendingUp, TrendingDown, Minus,
+  Shield, Plus, Upload, TrendingUp,
   AlertTriangle, Activity, Brain, ChevronDown, ChevronUp,
-  RefreshCw, Copy, Check, Zap, Target, BarChart3, PieChart,
-  List, X, Search
+  RefreshCw, Copy, Check, Zap, Target,
+  X, Search
 } from 'lucide-react';
-import { PieChart as RechartsPie, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
+import PortfolioAssetsSection from '../components/PortfolioAssetsSection';
 
 // ═══════════════════════════════════════════
 // MOCK DATA — will be replaced with API calls
@@ -111,12 +111,6 @@ The most sensitive factor is your BTC position: a 1% change in BTC weight causes
 // UTILITY COMPONENTS
 // ═══════════════════════════════════════════
 
-const RISK_CONFIG = {
-  LOW:    { color: 'bg-green-500', text: 'text-green-400', border: 'border-green-500/30', bg: 'bg-green-500/10' },
-  MEDIUM: { color: 'bg-orange-400', text: 'text-orange-400', border: 'border-orange-400/30', bg: 'bg-orange-400/10' },
-  HIGH:   { color: 'bg-red-500', text: 'text-red-400', border: 'border-red-500/30', bg: 'bg-red-500/10' },
-};
-
 const HEALTH_CONFIG = {
   HEALTHY:  { color: 'text-green-400', bg: 'bg-green-500/10', border: 'border-green-500/30', icon: Shield },
   STRESSED: { color: 'text-orange-400', bg: 'bg-orange-400/10', border: 'border-orange-400/30', icon: AlertTriangle },
@@ -128,25 +122,6 @@ const FACTOR_STATUS = {
   warning: { color: 'text-orange-400', icon: AlertTriangle },
   danger:  { color: 'text-red-400', icon: AlertTriangle },
 };
-
-const PIE_COLORS = ['#f59e0b', '#3b82f6', '#10b981', '#8b5cf6', '#ef4444', '#06b6d4', '#ec4899'];
-
-const CATEGORY_ICONS = {
-  crypto: '₿',
-  stock: '📈',
-  forex: '💱',
-  futures: '🥇',
-};
-
-function RiskBadge({ risk }) {
-  const cfg = RISK_CONFIG[risk] || RISK_CONFIG.MEDIUM;
-  return (
-    <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold text-white ${cfg.color}`}>
-      <Activity className="h-3 w-3" />
-      {risk}
-    </span>
-  );
-}
 
 function formatCurrency(value) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value);
@@ -161,10 +136,57 @@ function formatPercent(value) {
 // ADD ASSET MODAL
 // ═══════════════════════════════════════════
 
-function AddAssetModal({ isOpen, onClose }) {
+function AddAssetModal({ isOpen, onClose, onSubmit, initialAsset = null, mode = 'add' }) {
   const [symbol, setSymbol] = useState('');
+  const [name, setName] = useState('');
+  const [category, setCategory] = useState('stock');
   const [weight, setWeight] = useState('');
   const [entryPrice, setEntryPrice] = useState('');
+  const [currentPrice, setCurrentPrice] = useState('');
+  const [risk, setRisk] = useState('MEDIUM');
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    if (initialAsset) {
+      setSymbol(initialAsset.symbol || '');
+      setName(initialAsset.name || '');
+      setCategory(initialAsset.category || 'stock');
+      setWeight(String(initialAsset.weight ?? ''));
+      setEntryPrice(String(initialAsset.entryPrice ?? ''));
+      setCurrentPrice(String(initialAsset.currentPrice ?? ''));
+      setRisk(initialAsset.risk || 'MEDIUM');
+      return;
+    }
+
+    setSymbol('');
+    setName('');
+    setCategory('stock');
+    setWeight('');
+    setEntryPrice('');
+    setCurrentPrice('');
+    setRisk('MEDIUM');
+  }, [isOpen, initialAsset]);
+
+  const handleSubmit = () => {
+    if (!symbol.trim()) return;
+
+    const parsedWeight = Number(weight);
+    const parsedEntryPrice = Number(entryPrice || 0);
+    const parsedCurrentPrice = Number(currentPrice || 0);
+    if (Number.isNaN(parsedWeight) || parsedWeight <= 0) return;
+
+    onSubmit({
+      symbol: symbol.trim().toUpperCase(),
+      name: name.trim() || symbol.trim().toUpperCase(),
+      category,
+      weight: parsedWeight,
+      entryPrice: Number.isNaN(parsedEntryPrice) ? 0 : parsedEntryPrice,
+      currentPrice: Number.isNaN(parsedCurrentPrice) ? 0 : parsedCurrentPrice,
+      risk,
+    });
+    onClose();
+  };
 
   if (!isOpen) return null;
 
@@ -185,7 +207,9 @@ function AddAssetModal({ isOpen, onClose }) {
           onClick={e => e.stopPropagation()}
         >
           <div className="flex items-center justify-between mb-6">
-            <h3 className="text-lg font-semibold text-foreground">Add Asset</h3>
+            <h3 className="text-lg font-semibold text-foreground">
+              {mode === 'edit' ? 'Edit Asset' : 'Add Asset'}
+            </h3>
             <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
               <X className="h-5 w-5" />
             </button>
@@ -207,6 +231,45 @@ function AddAssetModal({ isOpen, onClose }) {
             </div>
 
             <div>
+              <label className="text-sm text-muted-foreground mb-1 block">Asset Name</label>
+              <input
+                type="text"
+                placeholder="e.g. Apple Inc."
+                value={name}
+                onChange={e => setName(e.target.value)}
+                className="w-full px-4 py-2.5 rounded-lg bg-background border border-border text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-sm text-muted-foreground mb-1 block">Category</label>
+                <select
+                  value={category}
+                  onChange={e => setCategory(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-lg bg-background border border-border text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+                >
+                  <option value="crypto">Crypto</option>
+                  <option value="stock">Stock</option>
+                  <option value="forex">Forex</option>
+                  <option value="futures">Futures</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-sm text-muted-foreground mb-1 block">Risk</label>
+                <select
+                  value={risk}
+                  onChange={e => setRisk(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-lg bg-background border border-border text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+                >
+                  <option value="LOW">LOW</option>
+                  <option value="MEDIUM">MEDIUM</option>
+                  <option value="HIGH">HIGH</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
               <label className="text-sm text-muted-foreground mb-1 block">Weight (%)</label>
               <input
                 type="number"
@@ -218,15 +281,27 @@ function AddAssetModal({ isOpen, onClose }) {
               />
             </div>
 
-            <div>
-              <label className="text-sm text-muted-foreground mb-1 block">Entry Price (optional)</label>
-              <input
-                type="number"
-                placeholder="e.g. 42000"
-                value={entryPrice}
-                onChange={e => setEntryPrice(e.target.value)}
-                className="w-full px-4 py-2.5 rounded-lg bg-background border border-border text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
-              />
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-sm text-muted-foreground mb-1 block">Entry Price</label>
+                <input
+                  type="number"
+                  placeholder="e.g. 42000"
+                  value={entryPrice}
+                  onChange={e => setEntryPrice(e.target.value)}
+                  className="w-full px-4 py-2.5 rounded-lg bg-background border border-border text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                />
+              </div>
+              <div>
+                <label className="text-sm text-muted-foreground mb-1 block">Current Price</label>
+                <input
+                  type="number"
+                  placeholder="e.g. 79534"
+                  value={currentPrice}
+                  onChange={e => setCurrentPrice(e.target.value)}
+                  className="w-full px-4 py-2.5 rounded-lg bg-background border border-border text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                />
+              </div>
             </div>
           </div>
 
@@ -234,8 +309,8 @@ function AddAssetModal({ isOpen, onClose }) {
             <button onClick={onClose} className="flex-1 px-4 py-2.5 rounded-lg border border-border text-sm text-muted-foreground hover:bg-secondary/50 transition-colors">
               Cancel
             </button>
-            <button onClick={onClose} className="flex-1 px-4 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors">
-              Add Asset
+            <button onClick={handleSubmit} className="flex-1 px-4 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors">
+              {mode === 'edit' ? 'Save Changes' : 'Add Asset'}
             </button>
           </div>
         </motion.div>
@@ -249,15 +324,40 @@ function AddAssetModal({ isOpen, onClose }) {
 // ═══════════════════════════════════════════
 
 export default function PortfolioPage() {
+  const [assets, setAssets] = useState(MOCK_ASSETS);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [editingAsset, setEditingAsset] = useState(null);
   const [chartView, setChartView] = useState('pie');
   const [expandedTests, setExpandedTests] = useState({});
   const [copiedAI, setCopiedAI] = useState(false);
 
-  const totalValue = MOCK_ASSETS.reduce((sum, a) => sum + (a.currentPrice * a.weight), 0);
-  const pieData = MOCK_ASSETS.map(a => ({ name: a.symbol, value: a.weight }));
+  const totalValue = assets.reduce((sum, a) => sum + (a.currentPrice * a.weight), 0);
   const healthCfg = HEALTH_CONFIG[MOCK_HEALTH.status];
   const HealthIcon = healthCfg.icon;
+
+  const portfolioStats = useMemo(() => {
+    if (!assets.length) {
+      return {
+        highestRisk: 'N/A',
+        largestPosition: 'N/A',
+        categorySpread: '0 categories',
+      };
+    }
+
+    const riskRank = { LOW: 1, MEDIUM: 2, HIGH: 3 };
+    const highestRiskAsset = assets.reduce((highest, current) =>
+      riskRank[current.risk] > riskRank[highest.risk] ? current : highest
+    );
+    const largestWeight = Math.max(...assets.map(a => a.weight));
+    const largestAssets = assets.filter(a => a.weight === largestWeight).map(a => a.symbol).join(' & ');
+    const categories = new Set(assets.map(a => a.category)).size;
+
+    return {
+      highestRisk: `${highestRiskAsset.symbol} (${highestRiskAsset.risk})`,
+      largestPosition: `${largestAssets} (${largestWeight}%)`,
+      categorySpread: `${categories} categories`,
+    };
+  }, [assets]);
 
   const toggleTest = (id) => {
     setExpandedTests(prev => ({ ...prev, [id]: !prev[id] }));
@@ -269,9 +369,51 @@ export default function PortfolioPage() {
     setTimeout(() => setCopiedAI(false), 2000);
   };
 
+  const handleAddAsset = (assetData) => {
+    setAssets(prev => [
+      ...prev,
+      {
+        ...assetData,
+        id: Date.now(),
+      },
+    ]);
+  };
+
+  const handleEditAsset = (assetData) => {
+    if (!editingAsset) return;
+    setAssets(prev => prev.map(asset =>
+      asset.id === editingAsset.id
+        ? { ...asset, ...assetData }
+        : asset
+    ));
+    setEditingAsset(null);
+  };
+
+  const handleDeleteAsset = (assetId) => {
+    const targetAsset = assets.find(asset => asset.id === assetId);
+    if (!targetAsset) return;
+    if (!window.confirm(`Delete ${targetAsset.symbol} from portfolio?`)) return;
+
+    setAssets(prev => prev.filter(asset => asset.id !== assetId));
+    if (editingAsset?.id === assetId) {
+      setEditingAsset(null);
+    }
+  };
+
   return (
     <div className="max-w-6xl mx-auto">
-      <AddAssetModal isOpen={showAddModal} onClose={() => setShowAddModal(false)} />
+      <AddAssetModal
+        isOpen={showAddModal}
+        onClose={() => setShowAddModal(false)}
+        onSubmit={handleAddAsset}
+      />
+      <AddAssetModal
+        isOpen={Boolean(editingAsset)}
+        onClose={() => setEditingAsset(null)}
+        onSubmit={handleEditAsset}
+        initialAsset={editingAsset}
+        mode="edit"
+      />
 
       {/* ═══ PAGE HEADER ═══ */}
       <div className="mb-8">
@@ -336,12 +478,12 @@ export default function PortfolioPage() {
           <div className="grid grid-cols-2 gap-3 mb-6">
             <div className="bg-background rounded-xl p-3 text-center">
               <p className="text-xs text-muted-foreground">Assets</p>
-              <p className="text-xl font-bold text-foreground">{MOCK_ASSETS.length}</p>
+              <p className="text-xl font-bold text-foreground">{assets.length}</p>
             </div>
             <div className="bg-background rounded-xl p-3 text-center">
               <p className="text-xs text-muted-foreground">Categories</p>
               <p className="text-xl font-bold text-foreground">
-                {new Set(MOCK_ASSETS.map(a => a.category)).size}
+                {new Set(assets.map(a => a.category)).size}
               </p>
             </div>
           </div>
@@ -360,146 +502,17 @@ export default function PortfolioPage() {
         </motion.div>
       </div>
 
-      {/* ═══ SECTION 2: YOUR ASSETS ═══ */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.2 }}
-        className="bg-card border border-border rounded-2xl p-6 mb-8"
-      >
-        <div className="flex items-center justify-between mb-5">
-          <h2 className="text-lg font-semibold text-foreground">Your Assets</h2>
-          <div className="flex bg-background rounded-lg p-1">
-            {[
-              { key: 'pie', icon: PieChart, label: 'Pie Chart' },
-              { key: 'list', icon: List, label: 'List' },
-              { key: 'stats', icon: BarChart3, label: 'Statistics' },
-            ].map(v => (
-              <button
-                key={v.key}
-                onClick={() => setChartView(v.key)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs transition-colors ${
-                  chartView === v.key
-                    ? 'bg-secondary text-foreground'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                <v.icon className="h-3.5 w-3.5" />
-                {v.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Pie Chart */}
-        {chartView === 'pie' && (
-          <div className="flex flex-col lg:flex-row items-center gap-8 mb-6">
-            <div className="w-64 h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <RechartsPie>
-                  <Pie
-                    data={pieData}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={60}
-                    outerRadius={100}
-                    paddingAngle={3}
-                    dataKey="value"
-                  >
-                    {pieData.map((_, i) => (
-                      <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }}
-                    itemStyle={{ color: '#e2e8f0' }}
-                    formatter={(value) => [`${value}%`, 'Weight']}
-                  />
-                </RechartsPie>
-              </ResponsiveContainer>
-            </div>
-            <div className="flex flex-wrap gap-3">
-              {MOCK_ASSETS.map((a, i) => (
-                <div key={a.id} className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: PIE_COLORS[i % PIE_COLORS.length] }} />
-                  <span className="text-sm text-muted-foreground">{a.symbol} ({a.weight}%)</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Stats View */}
-        {chartView === 'stats' && (
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-            {[
-              { label: 'Total Value', value: formatCurrency(totalValue) },
-              { label: 'Highest Risk', value: 'BTC (HIGH)' },
-              { label: 'Largest Position', value: `BTC & Gold (25%)` },
-              { label: 'Category Spread', value: '3 categories' },
-            ].map(s => (
-              <div key={s.label} className="bg-background rounded-xl p-4">
-                <p className="text-xs text-muted-foreground">{s.label}</p>
-                <p className="text-sm font-semibold text-foreground mt-1">{s.value}</p>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Asset Table */}
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-border">
-                <th className="text-left text-xs text-muted-foreground font-medium py-3 px-2">Asset</th>
-                <th className="text-right text-xs text-muted-foreground font-medium py-3 px-2">Weight</th>
-                <th className="text-right text-xs text-muted-foreground font-medium py-3 px-2">Holdings</th>
-                <th className="text-right text-xs text-muted-foreground font-medium py-3 px-2">P/L</th>
-                <th className="text-right text-xs text-muted-foreground font-medium py-3 px-2">Risk</th>
-              </tr>
-            </thead>
-            <tbody>
-              {MOCK_ASSETS.map((asset, i) => {
-                const pl = ((asset.currentPrice - asset.entryPrice) / asset.entryPrice) * 100;
-                return (
-                  <motion.tr
-                    key={asset.id}
-                    initial={{ opacity: 0, x: -10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: 0.05 * i }}
-                    className="border-b border-border/50 hover:bg-secondary/20 transition-colors"
-                  >
-                    <td className="py-4 px-2">
-                      <div className="flex items-center gap-3">
-                        <span className="text-xl">{CATEGORY_ICONS[asset.category] || '💰'}</span>
-                        <div>
-                          <p className="text-sm font-semibold text-foreground">{asset.symbol}</p>
-                          <p className="text-xs text-muted-foreground">{asset.name}</p>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="text-right py-4 px-2">
-                      <p className="text-sm font-medium text-foreground">{asset.weight}%</p>
-                    </td>
-                    <td className="text-right py-4 px-2">
-                      <p className="text-sm font-medium text-foreground">{formatCurrency(asset.currentPrice * asset.weight)}</p>
-                      <p className="text-xs text-muted-foreground">{formatCurrency(asset.currentPrice)}/unit</p>
-                    </td>
-                    <td className="text-right py-4 px-2">
-                      <p className={`text-sm font-medium ${pl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                        {formatPercent(pl)}
-                      </p>
-                    </td>
-                    <td className="text-right py-4 px-2">
-                      <RiskBadge risk={asset.risk} />
-                    </td>
-                  </motion.tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </motion.div>
+      <PortfolioAssetsSection
+        assets={assets}
+        chartView={chartView}
+        onChartViewChange={setChartView}
+        totalValue={totalValue}
+        portfolioStats={portfolioStats}
+        formatCurrency={formatCurrency}
+        formatPercent={formatPercent}
+        onEditAsset={setEditingAsset}
+        onDeleteAsset={handleDeleteAsset}
+      />
 
       {/* ═══ SECTION 3: STRESS TESTS ═══ */}
       <motion.div
