@@ -1,0 +1,37 @@
+{
+  "_meta": {
+    "description": "Proxy rules for asset classes that did not exist (or had de minimis market cap) during a historical scenario. Maps the missing class to a similar-behavior class with an optional leverage factor.",
+    "version": "v1"
+  },
+  "rules": {
+    "crypto_major::gfc_2008": {
+      "method": "factor_proxy",
+      "proxy_class": "us_equity_tech",
+      "leverage_factor": 1.5,
+      "rationale": "Bitcoin was launched January 2009; no market existed during GFC. Proxied by US tech equity scaled 1.5x to reflect higher historical volatility profile."
+    },
+    "crypto_alt": {
+      "method": "factor_proxy",
+      "proxy_class": "us_equity_tech",
+      "leverage_factor": 2.0,
+      "rationale": "Most altcoin markets emerged 2014–2017. Proxied by tech equity scaled 2.0x for higher beta and lower liquidity."
+    },
+    "crypto_major::flash_crash_2010": {
+      "method": "factor_proxy",
+      "proxy_class": "us_equity_tech",
+      "leverage_factor": 1.2,
+      "rationale": "Bitcoin existed in May 2010 but had de minimis volume; 2010 prices reflect cottage-industry conditions, not a meaningful market reaction. Proxied by tech equity scaled 1.2x."
+    },
+    "crypto_alt::flash_crash_2010": {
+      "method": "factor_proxy",
+      "proxy_class": "us_equity_tech",
+      "leverage_factor": 1.5,
+      "rationale": "Altcoins did not exist in 2010. Proxied by tech equity scaled 1.5x."
+    }
+  },
+  "fallback": {
+    "_doc": "Used when an asset_class has no shock entry AND no proxy rule for the scenario. Conservative broad-market downside assumption.",
+    "shock_pct": -10.0,
+    "label": "Broad market stress assumption (data unavailable)"
+  }
+}

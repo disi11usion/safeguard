@@ -1,0 +1,6 @@
+{
+    "success": true,
+    "title": "ADA-USDT Correlation Analysis",
+    "summary": "Analysis of ADA and USDT from Oct 11 to Nov 10, 2025 reveals a strong positive correlation of 0.76, indicating they move together despite different risk profiles. ADA shows significantly higher volatility (5.03%) compared to USDT's minimal volatility (0.04%), while both assets experienced negative average daily returns during this period. This strong correlation limits diversification benefits between these two assets, though USDT's stability provides some risk mitigation against ADA's price swings.",
+    "suggestion": "Observation: the 0.76 correlation between ADA and USDT indicates limited diversification within this pair; portfolios containing only these two assets would exhibit similar risk exposure to holding ADA alone. This is a descriptive finding — no reallocation is implied."
+}

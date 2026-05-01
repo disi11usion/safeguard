@@ -1,0 +1,89 @@
+# Secrets — NEVER commit
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# Database
+pgdata/
+*.db
+*.sqlite
+
+# Node modules
+node_modules/
+frontend/node_modules/
+backend/node_modules/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Docker volumes
+ollama_data/
+
+# Large data files
+*.parquet
+*.pickle
+*.pkl
+*.h5
+*.hdf5
+*.zip
+*.tar.gz
+*.rar
+
+# Model files
+*.pt
+*.pth
+*.onnx
+*.pb
+*.tflite
+*.bin
+
+# Training data
+backend/database/data/
+datasets/
+
+# Session files
+data/session.session
+*.session.env
+
+# Local tool config
+.claude/
+
+# Vite / Test cache
+.vite/
+.pytest_cache/
+.coverage
+coverage/
+
+# tmp / scratch
+*.swap
+*.tmp
+.tmp/

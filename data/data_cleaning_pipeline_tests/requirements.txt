@@ -1,0 +1,7 @@
+pandas
+numpy
+beautifulsoup4
+emoji
+contractions
+lxml
+html5lib

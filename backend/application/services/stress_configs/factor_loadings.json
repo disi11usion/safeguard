@@ -1,0 +1,68 @@
+{
+  "_meta": {
+    "description": "Factor exposures per asset class AND per symbol. Heuristic estimates based on representative ETF holdings, MSCI factsheets, and AQR/Fama-French academic literature. NOT regression-fitted to any specific portfolio. Sign convention: positive shock means the factor moved UP; asset return contribution = loading * shock. Example: us_equity_tech RealRate loading -0.6 means tech LOSES when real rates rise.",
+    "version": "v1",
+    "factors": [
+      "Growth", "Value", "Quality", "Momentum",
+      "Volatility", "RealRate", "Inflation", "CreditSpread"
+    ],
+    "factor_descriptions": {
+      "Growth": "Growth-style factor (positive = growth stocks outperform)",
+      "Value": "Value-style factor (positive = value stocks outperform)",
+      "Quality": "Quality factor (positive = high-quality outperform; flight to quality)",
+      "Momentum": "Momentum factor (positive = trend-following wins)",
+      "Volatility": "Volatility regime change (positive = VIX-like measure UP); negative loading means asset is hurt by vol spikes",
+      "RealRate": "Real interest rate change (positive = real rates UP); negative loading means asset is hurt by rate hikes",
+      "Inflation": "Inflation expectations change (positive = inflation UP); positive loading means inflation hedge",
+      "CreditSpread": "Credit spread change (positive = spreads WIDEN); negative loading means asset is hurt by credit risk"
+    },
+    "method": "heuristic",
+    "lookup_order": "per_symbol > loadings (by class)"
+  },
+  "loadings": {
+    "us_equity_broad":         {"Growth":  0.2, "Value":  0.1, "Quality":  0.3, "Momentum":  0.1, "Volatility": -0.3, "RealRate": -0.2, "Inflation": -0.2, "CreditSpread": -0.4},
+    "us_equity_tech":          {"Growth":  0.7, "Value": -0.3, "Quality":  0.4, "Momentum":  0.2, "Volatility": -0.4, "RealRate": -0.6, "Inflation": -0.3, "CreditSpread": -0.4},
+    "us_equity_financial":     {"Growth":  0.0, "Value":  0.5, "Quality":  0.2, "Momentum":  0.1, "Volatility": -0.3, "RealRate":  0.4, "Inflation":  0.1, "CreditSpread": -0.7},
+    "global_equity_developed": {"Growth":  0.2, "Value":  0.2, "Quality":  0.2, "Momentum":  0.1, "Volatility": -0.3, "RealRate": -0.3, "Inflation": -0.1, "CreditSpread": -0.4},
+    "emerging_markets_equity": {"Growth":  0.3, "Value":  0.3, "Quality":  0.0, "Momentum":  0.2, "Volatility": -0.5, "RealRate": -0.4, "Inflation": -0.2, "CreditSpread": -0.6},
+    "crypto_major":            {"Growth":  0.4, "Value": -0.4, "Quality": -0.2, "Momentum":  0.4, "Volatility": -0.7, "RealRate": -0.6, "Inflation":  0.0, "CreditSpread": -0.5},
+    "crypto_alt":              {"Growth":  0.5, "Value": -0.5, "Quality": -0.4, "Momentum":  0.5, "Volatility": -1.0, "RealRate": -0.7, "Inflation":  0.0, "CreditSpread": -0.6},
+    "precious_metals":         {"Growth":  0.0, "Value":  0.1, "Quality":  0.0, "Momentum":  0.0, "Volatility":  0.2, "RealRate": -0.4, "Inflation":  0.6, "CreditSpread":  0.1},
+    "commodities_energy":      {"Growth":  0.1, "Value":  0.4, "Quality": -0.1, "Momentum":  0.2, "Volatility": -0.2, "RealRate": -0.1, "Inflation":  0.7, "CreditSpread": -0.3},
+    "treasury_bonds":          {"Growth": -0.2, "Value":  0.0, "Quality":  0.5, "Momentum":  0.0, "Volatility":  0.4, "RealRate": -0.7, "Inflation": -0.6, "CreditSpread":  0.3},
+    "corporate_bonds":         {"Growth": -0.1, "Value":  0.1, "Quality":  0.3, "Momentum":  0.0, "Volatility": -0.1, "RealRate": -0.5, "Inflation": -0.4, "CreditSpread": -0.7},
+    "forex_g10":               {"Growth":  0.0, "Value":  0.0, "Quality":  0.1, "Momentum":  0.0, "Volatility":  0.1, "RealRate":  0.3, "Inflation": -0.2, "CreditSpread":  0.0}
+  },
+  "per_symbol": {
+    "AAPL":  {"Growth":  0.6, "Value": -0.2, "Quality":  0.7, "Momentum":  0.2, "Volatility": -0.3, "RealRate": -0.5, "Inflation": -0.3, "CreditSpread": -0.3},
+    "MSFT":  {"Growth":  0.5, "Value": -0.2, "Quality":  0.9, "Momentum":  0.2, "Volatility": -0.2, "RealRate": -0.4, "Inflation": -0.2, "CreditSpread": -0.2},
+    "GOOGL": {"Growth":  0.7, "Value": -0.3, "Quality":  0.6, "Momentum":  0.2, "Volatility": -0.4, "RealRate": -0.5, "Inflation": -0.3, "CreditSpread": -0.3},
+    "GOOG":  {"Growth":  0.7, "Value": -0.3, "Quality":  0.6, "Momentum":  0.2, "Volatility": -0.4, "RealRate": -0.5, "Inflation": -0.3, "CreditSpread": -0.3},
+    "NVDA":  {"Growth":  0.9, "Value": -0.5, "Quality":  0.4, "Momentum":  0.4, "Volatility": -0.7, "RealRate": -0.8, "Inflation": -0.3, "CreditSpread": -0.4},
+    "META":  {"Growth":  0.7, "Value": -0.3, "Quality":  0.5, "Momentum":  0.3, "Volatility": -0.5, "RealRate": -0.5, "Inflation": -0.3, "CreditSpread": -0.3},
+    "AMZN":  {"Growth":  0.7, "Value": -0.4, "Quality":  0.5, "Momentum":  0.2, "Volatility": -0.5, "RealRate": -0.6, "Inflation": -0.4, "CreditSpread": -0.4},
+    "TSLA":  {"Growth":  0.9, "Value": -0.5, "Quality":  0.0, "Momentum":  0.5, "Volatility": -0.9, "RealRate": -0.8, "Inflation": -0.3, "CreditSpread": -0.5},
+    "NFLX":  {"Growth":  0.7, "Value": -0.3, "Quality":  0.4, "Momentum":  0.2, "Volatility": -0.6, "RealRate": -0.6, "Inflation": -0.3, "CreditSpread": -0.4},
+    "JPM":   {"Growth":  0.0, "Value":  0.5, "Quality":  0.5, "Momentum":  0.1, "Volatility": -0.3, "RealRate":  0.5, "Inflation":  0.1, "CreditSpread": -0.6},
+    "BAC":   {"Growth": -0.1, "Value":  0.5, "Quality":  0.2, "Momentum":  0.1, "Volatility": -0.4, "RealRate":  0.6, "Inflation":  0.1, "CreditSpread": -0.7},
+    "GS":    {"Growth":  0.1, "Value":  0.4, "Quality":  0.3, "Momentum":  0.1, "Volatility": -0.5, "RealRate":  0.4, "Inflation":  0.0, "CreditSpread": -0.7},
+    "WFC":   {"Growth": -0.2, "Value":  0.6, "Quality":  0.1, "Momentum":  0.0, "Volatility": -0.4, "RealRate":  0.7, "Inflation":  0.1, "CreditSpread": -0.7},
+    "MS":    {"Growth":  0.1, "Value":  0.4, "Quality":  0.3, "Momentum":  0.1, "Volatility": -0.5, "RealRate":  0.5, "Inflation":  0.0, "CreditSpread": -0.7},
+    "C":     {"Growth": -0.1, "Value":  0.6, "Quality":  0.0, "Momentum":  0.0, "Volatility": -0.5, "RealRate":  0.5, "Inflation":  0.1, "CreditSpread": -0.8},
+    "BTC":   {"Growth":  0.4, "Value": -0.4, "Quality": -0.1, "Momentum":  0.5, "Volatility": -0.6, "RealRate": -0.6, "Inflation":  0.1, "CreditSpread": -0.4},
+    "ETH":   {"Growth":  0.5, "Value": -0.5, "Quality": -0.2, "Momentum":  0.5, "Volatility": -0.7, "RealRate": -0.7, "Inflation":  0.0, "CreditSpread": -0.5},
+    "SOL":   {"Growth":  0.6, "Value": -0.5, "Quality": -0.4, "Momentum":  0.6, "Volatility": -1.0, "RealRate": -0.8, "Inflation":  0.0, "CreditSpread": -0.6},
+    "BNB":   {"Growth":  0.4, "Value": -0.5, "Quality": -0.3, "Momentum":  0.4, "Volatility": -0.8, "RealRate": -0.7, "Inflation":  0.0, "CreditSpread": -0.5},
+    "ADA":   {"Growth":  0.5, "Value": -0.6, "Quality": -0.4, "Momentum":  0.4, "Volatility": -1.0, "RealRate": -0.8, "Inflation":  0.0, "CreditSpread": -0.6},
+    "KO":    {"Growth":  0.0, "Value":  0.2, "Quality":  0.7, "Momentum":  0.0, "Volatility":  0.1, "RealRate": -0.2, "Inflation":  0.1, "CreditSpread": -0.1},
+    "JNJ":   {"Growth":  0.0, "Value":  0.2, "Quality":  0.8, "Momentum":  0.0, "Volatility":  0.2, "RealRate": -0.3, "Inflation":  0.0, "CreditSpread": -0.1},
+    "PG":    {"Growth":  0.0, "Value":  0.2, "Quality":  0.7, "Momentum":  0.0, "Volatility":  0.1, "RealRate": -0.2, "Inflation":  0.0, "CreditSpread": -0.1},
+    "WMT":   {"Growth":  0.1, "Value":  0.2, "Quality":  0.6, "Momentum":  0.1, "Volatility":  0.0, "RealRate": -0.2, "Inflation": -0.1, "CreditSpread": -0.1},
+    "V":     {"Growth":  0.4, "Value": -0.2, "Quality":  0.6, "Momentum":  0.2, "Volatility": -0.2, "RealRate": -0.3, "Inflation": -0.1, "CreditSpread": -0.3},
+    "MA":    {"Growth":  0.4, "Value": -0.2, "Quality":  0.6, "Momentum":  0.2, "Volatility": -0.2, "RealRate": -0.3, "Inflation": -0.1, "CreditSpread": -0.3},
+    "DIS":   {"Growth":  0.2, "Value":  0.0, "Quality":  0.3, "Momentum":  0.1, "Volatility": -0.3, "RealRate": -0.3, "Inflation": -0.1, "CreditSpread": -0.3},
+    "MCD":   {"Growth":  0.1, "Value":  0.1, "Quality":  0.6, "Momentum":  0.1, "Volatility":  0.0, "RealRate": -0.2, "Inflation":  0.0, "CreditSpread": -0.2},
+    "XOM":   {"Growth": -0.1, "Value":  0.5, "Quality":  0.2, "Momentum":  0.2, "Volatility": -0.2, "RealRate":  0.0, "Inflation":  0.7, "CreditSpread": -0.2},
+    "CVX":   {"Growth": -0.1, "Value":  0.5, "Quality":  0.3, "Momentum":  0.2, "Volatility": -0.2, "RealRate":  0.0, "Inflation":  0.7, "CreditSpread": -0.2}
+  }
+}

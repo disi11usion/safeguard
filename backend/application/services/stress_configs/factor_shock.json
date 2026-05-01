@@ -1,0 +1,90 @@
+{
+  "_meta": {
+    "description": "Factor shock scenarios. Each scenario defines a vector of factor shocks (in %). Asset return = sum(loading * factor_shock) using factor_loadings.json. Sign convention: positive shock = factor moved UP. These are not predictions; they are stylized stress scenarios used for risk-exposure observation.",
+    "version": "v1",
+    "module": "factor_shock",
+    "module_kind": "factor"
+  },
+  "scenarios": {
+    "growth_crash": {
+      "name": "Growth Factor Crash",
+      "description": "Long-duration / high-growth assets de-rate sharply; analogue: 2022 H1 tech repricing as growth-style factor underperformed.",
+      "duration_label": "Stylized scenario",
+      "factor_shocks": {
+        "Growth": -25.0,
+        "Value":   5.0,
+        "Quality":  3.0,
+        "Momentum": -10.0,
+        "Volatility": 20.0,
+        "RealRate":  0.0,
+        "Inflation": 0.0,
+        "CreditSpread": 0.0
+      },
+      "is_synthetic": true
+    },
+    "real_rate_surge": {
+      "name": "Real Rate Surge (+200bp equiv.)",
+      "description": "Real rates jump sharply; long-duration assets repriced. Approximates 2022 Fed cycle effect concentrated through the rate channel.",
+      "duration_label": "Stylized scenario",
+      "factor_shocks": {
+        "Growth": -8.0,
+        "Value":   3.0,
+        "Quality":  0.0,
+        "Momentum": 0.0,
+        "Volatility": 10.0,
+        "RealRate": 25.0,
+        "Inflation": 0.0,
+        "CreditSpread": 5.0
+      },
+      "is_synthetic": true
+    },
+    "inflation_surprise": {
+      "name": "Inflation Surprise",
+      "description": "Sudden inflation shock; growth de-rates, real assets bid, bonds sold. Loose analogue: 2022 CPI surprise prints.",
+      "duration_label": "Stylized scenario",
+      "factor_shocks": {
+        "Growth": -5.0,
+        "Value":   5.0,
+        "Quality":  0.0,
+        "Momentum": 0.0,
+        "Volatility": 15.0,
+        "RealRate": 15.0,
+        "Inflation": 25.0,
+        "CreditSpread": 0.0
+      },
+      "is_synthetic": true
+    },
+    "flight_to_quality": {
+      "name": "Flight to Quality",
+      "description": "Risk-off; high-quality bid, low-quality dumped, credit spreads widen sharply. Analogue: 2008 Q4, March 2020.",
+      "duration_label": "Stylized scenario",
+      "factor_shocks": {
+        "Growth": -15.0,
+        "Value":  -5.0,
+        "Quality": 10.0,
+        "Momentum": -5.0,
+        "Volatility": 25.0,
+        "RealRate": -10.0,
+        "Inflation": 0.0,
+        "CreditSpread": 30.0
+      },
+      "is_synthetic": true
+    },
+    "vol_spike": {
+      "name": "Volatility Regime Shift",
+      "description": "VIX-style explosion; high-volatility assets pressured, defensive assets bid.",
+      "duration_label": "Stylized scenario",
+      "factor_shocks": {
+        "Growth": -10.0,
+        "Value":  -2.0,
+        "Quality": 5.0,
+        "Momentum": -5.0,
+        "Volatility": 30.0,
+        "RealRate": -5.0,
+        "Inflation": 0.0,
+        "CreditSpread": 10.0
+      },
+      "is_synthetic": true
+    }
+  }
+}

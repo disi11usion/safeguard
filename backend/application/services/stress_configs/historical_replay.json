@@ -1,0 +1,110 @@
+{
+  "_meta": {
+    "description": "Historical Crisis Replay scenarios. Each scenario applies the recorded peak-to-trough (or other defined window) shock to today's portfolio. Numbers sourced from publicly available financial literature (Bloomberg, Federal Reserve Economic Data, MSCI factsheets, on-chain price archives).",
+    "version": "v1",
+    "module": "historical_replay"
+  },
+  "scenarios": {
+    "gfc_2008": {
+      "name": "Global Financial Crisis (2008)",
+      "period": "2008-09 to 2009-03",
+      "duration_label": "6-month peak-to-trough",
+      "description": "Lehman collapse triggered global credit freeze; broad equity markets recorded their largest postwar drawdown.",
+      "shocks": {
+        "us_equity_broad":           -56.8,
+        "us_equity_tech":            -55.6,
+        "us_equity_financial":       -82.6,
+        "global_equity_developed":   -57.0,
+        "emerging_markets_equity":   -65.0,
+        "precious_metals": 25.0,
+        "commodities_energy":         -78.0,
+        "treasury_bonds": 20.0,
+        "corporate_bonds":             -8.0,
+        "forex_g10":                  -15.0
+      },
+      "proxy_required": ["crypto_major", "crypto_alt"]
+    },
+    "covid_2020": {
+      "name": "COVID Shock (2020)",
+      "period": "2020-02-19 to 2020-03-23",
+      "duration_label": "33-day peak-to-trough",
+      "description": "Pandemic-driven liquidity flight; the fastest bear market on record for US equities.",
+      "shocks": {
+        "us_equity_broad":           -34.0,
+        "us_equity_tech":            -30.0,
+        "us_equity_financial":       -42.0,
+        "global_equity_developed":   -34.0,
+        "emerging_markets_equity":   -33.0,
+        "crypto_major":              -50.0,
+        "crypto_alt":                -65.0,
+        "precious_metals": 5.0,
+        "commodities_energy":        -65.0,
+        "treasury_bonds": 8.0,
+        "corporate_bonds":            -5.0,
+        "forex_g10":                  -8.0
+      },
+      "proxy_required": []
+    },
+    "flash_crash_2010": {
+      "name": "Flash Crash (May 6, 2010)",
+      "period": "2010-05-06 intraday",
+      "duration_label": "Intraday extreme drawdown",
+      "description": "Liquidity vacuum triggered by algorithmic selling; S&P 500 lost ~9% within minutes before partial recovery. Documented by SEC/CFTC joint report.",
+      "shocks": {
+        "us_equity_broad":            -9.0,
+        "us_equity_tech":             -10.0,
+        "us_equity_financial":        -12.0,
+        "global_equity_developed":    -3.0,
+        "emerging_markets_equity":    -3.0,
+        "precious_metals": 1.0,
+        "commodities_energy":          -2.0,
+        "treasury_bonds": 1.5,
+        "corporate_bonds":            -1.0,
+        "forex_g10": 0.5
+      },
+      "proxy_required": ["crypto_major", "crypto_alt"]
+    },
+    "fed_shock_2022": {
+      "name": "Fed Tightening Shock (2022)",
+      "period": "2022-01 to 2022-10",
+      "duration_label": "9-month rate-driven repricing",
+      "description": "Aggressive Fed rate hikes (425bp cumulative) re-priced long-duration assets and tech equity.",
+      "shocks": {
+        "us_equity_broad":           -25.0,
+        "us_equity_tech":            -36.0,
+        "us_equity_financial":       -20.0,
+        "global_equity_developed":   -28.0,
+        "emerging_markets_equity":   -32.0,
+        "crypto_major":              -65.0,
+        "crypto_alt":                -75.0,
+        "precious_metals":            -3.0,
+        "commodities_energy": 5.0,
+        "treasury_bonds":            -15.0,
+        "corporate_bonds":           -16.0,
+        "forex_g10": 16.0
+      },
+      "proxy_required": []
+    },
+    "liquidity_crisis_2020mar": {
+      "name": "Dollar Liquidity Crisis (March 2020)",
+      "period": "2020-03-09 to 2020-03-23",
+      "duration_label": "2-week liquidity squeeze",
+      "description": "Concurrent with COVID shock; credit spreads widened sharply; Treasury market dysfunction triggered Fed emergency facilities.",
+      "shocks": {
+        "us_equity_broad":           -15.0,
+        "us_equity_tech":            -12.0,
+        "us_equity_financial":       -25.0,
+        "global_equity_developed":   -18.0,
+        "emerging_markets_equity":   -22.0,
+        "crypto_major":              -45.0,
+        "crypto_alt":                -55.0,
+        "precious_metals":            -8.0,
+        "commodities_energy":        -40.0,
+        "treasury_bonds": 2.0,
+        "corporate_bonds":           -12.0,
+        "forex_g10":                 -8.0
+      },
+      "proxy_required": []
+    }
+  }
+}

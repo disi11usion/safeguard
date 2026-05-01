@@ -1,0 +1,134 @@
+services:
+  redis:
+    image: redis:7-alpine
+    restart: always
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  db:
+    image: timescale/timescaledb:latest-pg17
+    restart: always
+    env_file:
+      - .env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  db-init:
+    build:
+      context: ./backend/database
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+    volumes:
+      - ./backend/database:/app
+    command: ["python", "scripts/run_create.py"]
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - OTP_DEV_MODE=false
+      - SMTP_FORCE_IPV4=true
+      - MARKET_SHAKE_CSV_DIR=/app/data/csv
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - ./backend:/app
+      - ./data:/app/data:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - CHOKIDAR_USEPOLLING=true
+      - WATCHPACK_POLLING=true
+      - VITE_STRIPE_PUBLISHABLE_KEY=${STRIPE_PUBLISHABLE_KEY}
+      - VITE_API_BASE=/api
+    env_file:
+      - .env
+    depends_on:
+      - backend
+    command: ["/bin/sh", "-lc", "if [ ! -x node_modules/.bin/vite ]; then npm install; fi; npm run dev -- --host 0.0.0.0"]
+
+  data:
+    build:
+      context: .
+      dockerfile: ./data/Dockerfile
+    volumes:
+      - ./data:/app/data
+      - ./ai:/app/ai
+      - ./backend:/app/backend
+    env_file:
+      - .env
+    depends_on:
+      - db
+      - db-init
+    restart: unless-stopped
+    entrypoint: ["/bin/bash", "-lc", "dos2unix /app/data/wait-for-db-init.sh 2>/dev/null || sed -i 's/\\r$//' /app/data/wait-for-db-init.sh; bash /app/data/wait-for-db-init.sh"]
+    environment:
+      # Backend internal modules use imports relative to backend/ (e.g. "from database.db_pool import ...").
+      # Adding /app/backend to PYTHONPATH lets those imports resolve in the data container.
+      PYTHONPATH: /app:/app/backend
+      # Proxy is opt-in. Leave unset unless the host actually provides one.
+      HTTP_PROXY: ${HTTP_PROXY:-}
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
+      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,db,backend}
+      
+  ollama:
+    build:
+      context: .
+      dockerfile: ai/Dockerfile.ollama.complete
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 60s
+      timeout: 30s
+      retries: 5
+      start_period: 300s
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+      - OLLAMA_ORIGINS=*
+      - STRIPE_MOCK=true
+    
+volumes:
+  pgdata:
+  ollama_data:

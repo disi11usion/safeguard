@@ -1,0 +1,54 @@
+{
+  "futures": [
+    {
+      "name": "Gold Spot / US Dollar",
+      "symbol": "XAU/USD",
+      "category": "Metals"
+    },
+    {
+      "name": "Silver Spot / US Dollar",
+      "symbol": "XAG/USD",
+      "category": "Metals"
+    },
+    {
+      "name": "Platinum Spot / US Dollar",
+      "symbol": "XPT/USD",
+      "category": "Metals"
+    },
+    {
+      "name": "Palladium Spot / US Dollar",
+      "symbol": "XPD/USD",
+      "category": "Metals"
+    },
+    {
+      "name": "Copper Futures",
+      "symbol": "HG",
+      "category": "Metals"
+    },
+    {
+      "name": "Crude Oil (WTI) Futures",
+      "symbol": "CL",
+      "category": "Energy"
+    },
+    {
+      "name": "Brent Crude Oil Futures",
+      "symbol": "BRN",
+      "category": "Energy"
+    },
+    {
+      "name": "Natural Gas Futures",
+      "symbol": "NG",
+      "category": "Energy"
+    },
+    {
+      "name": "Heating Oil Futures",
+      "symbol": "HO",
+      "category": "Energy"
+    },
+    {
+      "name": "Gasoline Futures",
+      "symbol": "RB",
+      "category": "Energy"
+    }
+  ]
+}

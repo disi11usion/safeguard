@@ -1,0 +1,10 @@
+pandas
+polars
+pytest
+feedparser
+requests
+praw
+google-api-python-client
+python-dateutil
+beautifulsoup4
+lxml

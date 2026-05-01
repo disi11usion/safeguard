@@ -1,0 +1,41 @@
+.PHONY: help lint lint-frontend lint-backend lint-fix lint-fix-backend
+
+help:
+	@echo "Available commands:"
+	@echo "  make lint              - Run all linters (frontend + backend)"
+	@echo "  make lint-frontend     - Run frontend ESLint"
+	@echo "  make lint-backend      - Run backend linters (flake8, black, isort)"
+	@echo "  make lint-fix          - Auto-fix all linting issues"
+	@echo "  make lint-fix-backend  - Auto-fix backend linting issues"
+
+# Run all linters
+lint:
+	@echo "=== Running Linters ==="
+	@docker compose -f docker-compose.dev.yml --profile lint up --abort-on-container-exit
+
+# Frontend linting
+lint-frontend:
+	@echo "=== Running Frontend Linter ==="
+	@docker compose -f docker-compose.dev.yml run --rm frontend-lint
+
+# Backend linting (check only)
+lint-backend:
+	@echo "=== Running Backend Linters ==="
+	@docker compose -f docker-compose.dev.yml run --rm backend-lint
+
+# Fix all linting issues
+lint-fix:
+	@echo "=== Auto-fixing Linting Issues ==="
+	@$(MAKE) lint-fix-backend
+	@cd frontend && npm run lint
+
+# Fix backend linting issues
+lint-fix-backend:
+	@echo "=== Auto-fixing Backend Code ==="
+	@docker compose -f docker-compose.dev.yml run --rm backend sh -c "\
+		pip install black isort --quiet && \
+		echo '=== Running Black (format) ===' && \
+		black application/ presentation/ database/ --line-length=120 && \
+		echo '=== Running isort (format) ===' && \
+		isort application/ presentation/ database/ --profile black && \
+		echo '=== Auto-fix complete! ==='"

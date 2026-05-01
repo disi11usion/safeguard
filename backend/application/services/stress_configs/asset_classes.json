@@ -1,0 +1,53 @@
+{
+  "_meta": {
+    "description": "Asset class taxonomy used by stress engine. All asset shocks are defined per class.",
+    "version": "v1",
+    "last_updated": "2026-04-29"
+  },
+  "classes": [
+    "us_equity_broad",
+    "us_equity_tech",
+    "us_equity_financial",
+    "global_equity_developed",
+    "emerging_markets_equity",
+    "crypto_major",
+    "crypto_alt",
+    "precious_metals",
+    "commodities_energy",
+    "treasury_bonds",
+    "corporate_bonds",
+    "forex_g10"
+  ],
+  "classification_rules": {
+    "_doc": "Map a portfolio asset (symbol + category) to one of the 12 classes. Frontend MOCK_ASSETS uses category in {crypto, stock, forex, futures}.",
+    "by_symbol": {
+      "BTC": "crypto_major",
+      "ETH": "crypto_major",
+      "AAPL": "us_equity_tech",
+      "MSFT": "us_equity_tech",
+      "GOOGL": "us_equity_tech",
+      "GOOG": "us_equity_tech",
+      "NVDA": "us_equity_tech",
+      "META": "us_equity_tech",
+      "AMZN": "us_equity_tech",
+      "TSLA": "us_equity_tech",
+      "NFLX": "us_equity_tech",
+      "JPM": "us_equity_financial",
+      "BAC": "us_equity_financial",
+      "GS": "us_equity_financial",
+      "WFC": "us_equity_financial",
+      "C": "us_equity_financial",
+      "MS": "us_equity_financial",
+      "Gold": "precious_metals",
+      "GC": "precious_metals",
+      "SI": "precious_metals",
+      "Silver": "precious_metals"
+    },
+    "by_category_fallback": {
+      "crypto": "crypto_alt",
+      "stock": "us_equity_broad",
+      "futures": "commodities_energy",
+      "forex": "forex_g10"
+    }
+  }
+}

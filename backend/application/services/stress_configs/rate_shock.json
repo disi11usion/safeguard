@@ -1,0 +1,85 @@
+{
+  "_meta": {
+    "description": "Interest rate shock scenarios. User chooses a parallel shift in the yield curve; engine applies duration-driven repricing across asset classes. Calibrated to documented 2013 Taper Tantrum and 2022 Fed cycle.",
+    "version": "v1",
+    "module": "rate_shock"
+  },
+  "scenarios": {
+    "rate_up_50bp": {
+      "name": "Rate Hike +50bp",
+      "description": "Single rate decision surprise. Mild duration repricing.",
+      "shocks": {
+        "us_equity_broad":            -3.0,
+        "us_equity_tech":             -5.0,
+        "us_equity_financial": 2.0,
+        "global_equity_developed":    -3.0,
+        "emerging_markets_equity":    -4.0,
+        "crypto_major":              -10.0,
+        "crypto_alt":                -15.0,
+        "precious_metals":            -2.0,
+        "commodities_energy": 1.0,
+        "treasury_bonds":             -3.5,
+        "corporate_bonds":            -3.0,
+        "forex_g10": 3.0
+      },
+      "proxy_required": []
+    },
+    "rate_up_100bp": {
+      "name": "Rate Hike +100bp",
+      "description": "Approximate magnitude of 2013 Taper Tantrum (10Y yield rose ~120bp Apr–Sep 2013).",
+      "shocks": {
+        "us_equity_broad":            -7.0,
+        "us_equity_tech":            -12.0,
+        "us_equity_financial": 4.0,
+        "global_equity_developed":    -8.0,
+        "emerging_markets_equity":   -15.0,
+        "crypto_major":              -25.0,
+        "crypto_alt":                -35.0,
+        "precious_metals":            -5.0,
+        "commodities_energy": 2.0,
+        "treasury_bonds":             -7.0,
+        "corporate_bonds":            -6.0,
+        "forex_g10": 6.0
+      },
+      "proxy_required": []
+    },
+    "rate_up_200bp": {
+      "name": "Rate Hike +200bp",
+      "description": "Approximate cumulative effect of fast tightening cycle. Long-duration tech equity and crypto most affected.",
+      "shocks": {
+        "us_equity_broad":           -15.0,
+        "us_equity_tech":            -25.0,
+        "us_equity_financial": 5.0,
+        "global_equity_developed":   -16.0,
+        "emerging_markets_equity":   -25.0,
+        "crypto_major":              -45.0,
+        "crypto_alt":                -55.0,
+        "precious_metals":            -8.0,
+        "commodities_energy": 3.0,
+        "treasury_bonds":            -12.0,
+        "corporate_bonds":           -11.0,
+        "forex_g10": 12.0
+      },
+      "proxy_required": []
+    },
+    "rate_down_100bp": {
+      "name": "Rate Cut -100bp",
+      "description": "Emergency easing scenario. Long-duration assets benefit, USD weakens.",
+      "shocks": {
+        "us_equity_broad": 6.0,
+        "us_equity_tech": 12.0,
+        "us_equity_financial":        -3.0,
+        "global_equity_developed": 6.0,
+        "emerging_markets_equity": 10.0,
+        "crypto_major": 20.0,
+        "crypto_alt": 28.0,
+        "precious_metals": 8.0,
+        "commodities_energy": 4.0,
+        "treasury_bonds": 7.0,
+        "corporate_bonds": 6.0,
+        "forex_g10":                  -6.0
+      },
+      "proxy_required": []
+    }
+  }
+}

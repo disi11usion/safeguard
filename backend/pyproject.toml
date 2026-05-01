@@ -1,0 +1,25 @@
+[tool.black]
+line-length = 120
+target-version = ['py39', 'py310', 'py311']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.git
+  | __pycache__
+  | \.venv
+  | venv
+  | env
+  | node_modules
+  | migrations
+  | _lib
+)/
+'''
+
+[tool.isort]
+profile = "black"
+line_length = 120
+skip_gitignore = true
+known_first_party = ["application", "presentation", "database"]
+sections = ["FUTURE", "STDLIB", "THIRDPARTY", "FIRSTPARTY", "LOCALFOLDER"]
+skip = [".venv", "venv", "env", "node_modules", "migrations", "_lib"]

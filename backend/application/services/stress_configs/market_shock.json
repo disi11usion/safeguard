@@ -1,0 +1,85 @@
+{
+  "_meta": {
+    "description": "Generic broad-market shock scenarios. User chooses a magnitude; engine applies a calibrated cross-asset stress set. Used when the analyst wants 'what if equities dropped 20%' without anchoring to a specific historical event.",
+    "version": "v1",
+    "module": "market_shock"
+  },
+  "scenarios": {
+    "mild_correction": {
+      "name": "Mild Correction (-10% Equity)",
+      "description": "Standard equity correction depth. Other assets re-priced via typical cross-asset betas observed since 2000.",
+      "shocks": {
+        "us_equity_broad":           -10.0,
+        "us_equity_tech":            -12.0,
+        "us_equity_financial":       -11.0,
+        "global_equity_developed":   -10.0,
+        "emerging_markets_equity":   -13.0,
+        "crypto_major":              -20.0,
+        "crypto_alt":                -28.0,
+        "precious_metals": 2.0,
+        "commodities_energy":         -8.0,
+        "treasury_bonds": 3.0,
+        "corporate_bonds":            -3.0,
+        "forex_g10":                  -2.0
+      },
+      "proxy_required": []
+    },
+    "bear_market": {
+      "name": "Bear Market (-20% Equity)",
+      "description": "Conventional bear market threshold. Cross-asset response calibrated to 2018Q4 / 2011Q3 patterns.",
+      "shocks": {
+        "us_equity_broad":           -20.0,
+        "us_equity_tech":            -25.0,
+        "us_equity_financial":       -23.0,
+        "global_equity_developed":   -20.0,
+        "emerging_markets_equity":   -25.0,
+        "crypto_major":              -40.0,
+        "crypto_alt":                -55.0,
+        "precious_metals": 5.0,
+        "commodities_energy":        -15.0,
+        "treasury_bonds": 6.0,
+        "corporate_bonds":            -6.0,
+        "forex_g10":                  -4.0
+      },
+      "proxy_required": []
+    },
+    "severe_drawdown": {
+      "name": "Severe Drawdown (-30% Equity)",
+      "description": "Approximate magnitude of COVID 2020 / late-2008 phase. Wide credit spread widening, EM stress, USD strength.",
+      "shocks": {
+        "us_equity_broad":           -30.0,
+        "us_equity_tech":            -32.0,
+        "us_equity_financial":       -38.0,
+        "global_equity_developed":   -30.0,
+        "emerging_markets_equity":   -35.0,
+        "crypto_major":              -55.0,
+        "crypto_alt":                -68.0,
+        "precious_metals": 6.0,
+        "commodities_energy":        -45.0,
+        "treasury_bonds": 8.0,
+        "corporate_bonds":           -10.0,
+        "forex_g10":                  -8.0
+      },
+      "proxy_required": []
+    },
+    "crisis": {
+      "name": "Crisis (-40% Equity)",
+      "description": "Magnitude approximates the worst phase of GFC 2008. Primarily for tail-risk awareness.",
+      "shocks": {
+        "us_equity_broad":           -40.0,
+        "us_equity_tech":            -42.0,
+        "us_equity_financial":       -55.0,
+        "global_equity_developed":   -42.0,
+        "emerging_markets_equity":   -48.0,
+        "crypto_major":              -70.0,
+        "crypto_alt":                -82.0,
+        "precious_metals": 12.0,
+        "commodities_energy":        -55.0,
+        "treasury_bonds": 12.0,
+        "corporate_bonds":           -12.0,
+        "forex_g10":                 -12.0
+      },
+      "proxy_required": []
+    }
+  }
+}

@@ -1,0 +1,89 @@
+{
+  "_meta": {
+    "description": "Black Swan synthetic stress scenarios. Combines extreme tail moves across multiple asset classes simultaneously. These are NOT historical replays — they are proxy approximations of low-probability high-impact events.",
+    "version": "v1",
+    "module": "black_swan_proxy"
+  },
+  "scenarios": {
+    "stagflation": {
+      "name": "Stagflation Shock",
+      "description": "Sustained high inflation combined with growth recession. Reference: 1970s analogue (modeled, not replayed).",
+      "shocks": {
+        "us_equity_broad":           -35.0,
+        "us_equity_tech":            -45.0,
+        "us_equity_financial":       -28.0,
+        "global_equity_developed":   -38.0,
+        "emerging_markets_equity":   -42.0,
+        "crypto_major":              -55.0,
+        "crypto_alt":                -68.0,
+        "precious_metals": 25.0,
+        "commodities_energy": 30.0,
+        "treasury_bonds":            -18.0,
+        "corporate_bonds":           -20.0,
+        "forex_g10":                  -8.0
+      },
+      "proxy_required": [],
+      "is_synthetic": true
+    },
+    "geopolitical_shock": {
+      "name": "Major Geopolitical Shock",
+      "description": "Sudden major-power conflict or sanctions cascade. Modeled by aggregating effects of multiple historical events.",
+      "shocks": {
+        "us_equity_broad":           -22.0,
+        "us_equity_tech":            -25.0,
+        "us_equity_financial":       -28.0,
+        "global_equity_developed":   -28.0,
+        "emerging_markets_equity":   -38.0,
+        "crypto_major":              -32.0,
+        "crypto_alt":                -45.0,
+        "precious_metals": 18.0,
+        "commodities_energy": 35.0,
+        "treasury_bonds": 6.0,
+        "corporate_bonds":            -8.0,
+        "forex_g10": 12.0
+      },
+      "proxy_required": [],
+      "is_synthetic": true
+    },
+    "tech_concentration_unwind": {
+      "name": "Tech Concentration Unwind",
+      "description": "Hypothetical de-rating of mega-cap tech to historical median multiples. Synthetic scenario, not a historical replay.",
+      "shocks": {
+        "us_equity_broad":           -22.0,
+        "us_equity_tech":            -50.0,
+        "us_equity_financial":        -8.0,
+        "global_equity_developed":   -18.0,
+        "emerging_markets_equity":   -25.0,
+        "crypto_major":              -55.0,
+        "crypto_alt":                -68.0,
+        "precious_metals": 5.0,
+        "commodities_energy":         -8.0,
+        "treasury_bonds": 5.0,
+        "corporate_bonds":            -5.0,
+        "forex_g10": 3.0
+      },
+      "proxy_required": [],
+      "is_synthetic": true
+    },
+    "compound_tail": {
+      "name": "Compound Tail Event",
+      "description": "Stacked stresses (equity crash + credit blowout + USD squeeze). Worst-case envelope for risk awareness.",
+      "shocks": {
+        "us_equity_broad":           -45.0,
+        "us_equity_tech":            -50.0,
+        "us_equity_financial":       -60.0,
+        "global_equity_developed":   -48.0,
+        "emerging_markets_equity":   -55.0,
+        "crypto_major":              -75.0,
+        "crypto_alt":                -88.0,
+        "precious_metals": 18.0,
+        "commodities_energy":        -35.0,
+        "treasury_bonds": 15.0,
+        "corporate_bonds":           -22.0,
+        "forex_g10":                 -12.0
+      },
+      "proxy_required": [],
+      "is_synthetic": true
+    }
+  }
+}

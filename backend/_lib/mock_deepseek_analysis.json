@@ -1,0 +1,6 @@
+{
+    "success": true,
+    "title": "Crypto Asset Correlation Analysis",
+    "summary": "Analysis reveals AVAX and ADA are perfectly correlated (1.0), moving identically and offering no diversification benefit. BNB shows strong negative correlations with all other assets (-0.78 to -0.83), moving inversely. AVAX and ADA exhibit highest volatility (11,316) and positive returns (1.22%), while BNB has negative returns (-0.51%) with moderate volatility. LINK shows balanced performance with lower volatility. The 31-day period highlights significant diversification opportunity through BNB's inverse movement pattern, though AVAX-ADA perfect correlation reduces portfolio efficiency.",
+    "suggestion": "(Mock) Observation: BNB moves inversely to the other assets in this set (-0.78 to -0.83), while AVAX and ADA move in lockstep (1.0). These correlation readings describe observed co-movement only; no buy, sell, or allocation change is implied."
+}

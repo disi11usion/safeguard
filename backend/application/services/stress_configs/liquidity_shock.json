@@ -1,0 +1,85 @@
+{
+  "_meta": {
+    "description": "Liquidity shock scenarios. Models credit spread widening and dollar funding stress. Calibrated to Sept 2019 repo crisis, Mar 2020 dollar shortage, and historical IG/HY spread blowouts.",
+    "version": "v1",
+    "module": "liquidity_shock"
+  },
+  "scenarios": {
+    "ig_spread_widening": {
+      "name": "IG Credit Spread Widening (+100bp)",
+      "description": "Investment-grade corporate spreads widen 100bp. Recent comparable: Mar 2020 acute phase.",
+      "shocks": {
+        "us_equity_broad":            -5.0,
+        "us_equity_tech":             -3.0,
+        "us_equity_financial":       -10.0,
+        "global_equity_developed":    -5.0,
+        "emerging_markets_equity":    -8.0,
+        "crypto_major":               -8.0,
+        "crypto_alt":                -12.0,
+        "precious_metals": 1.0,
+        "commodities_energy":         -5.0,
+        "treasury_bonds": 2.0,
+        "corporate_bonds":            -8.0,
+        "forex_g10": 2.0
+      },
+      "proxy_required": []
+    },
+    "hy_spread_blowout": {
+      "name": "High-Yield Spread Blowout (+500bp)",
+      "description": "HY spreads widen 500bp+. Recent comparable: GFC 2008 and Mar 2020. Distressed credit environment.",
+      "shocks": {
+        "us_equity_broad":           -18.0,
+        "us_equity_tech":            -15.0,
+        "us_equity_financial":       -28.0,
+        "global_equity_developed":   -20.0,
+        "emerging_markets_equity":   -25.0,
+        "crypto_major":              -38.0,
+        "crypto_alt":                -48.0,
+        "precious_metals":            -3.0,
+        "commodities_energy":        -25.0,
+        "treasury_bonds": 4.0,
+        "corporate_bonds":           -22.0,
+        "forex_g10":                  -5.0
+      },
+      "proxy_required": []
+    },
+    "dollar_funding_squeeze": {
+      "name": "Dollar Funding Squeeze",
+      "description": "Acute USD shortage. Approximates Mar 2020 phase before Fed swap line activations.",
+      "shocks": {
+        "us_equity_broad":           -12.0,
+        "us_equity_tech":            -10.0,
+        "us_equity_financial":       -22.0,
+        "global_equity_developed":   -15.0,
+        "emerging_markets_equity":   -22.0,
+        "crypto_major":              -35.0,
+        "crypto_alt":                -48.0,
+        "precious_metals":            -8.0,
+        "commodities_energy":        -30.0,
+        "treasury_bonds": 3.0,
+        "corporate_bonds":           -14.0,
+        "forex_g10":                 -10.0
+      },
+      "proxy_required": []
+    },
+    "treasury_dysfunction": {
+      "name": "Treasury Market Dysfunction",
+      "description": "Liquidity disappears in the world's deepest market. Historical reference: Mar 2020 prior to Fed intervention.",
+      "shocks": {
+        "us_equity_broad":           -10.0,
+        "us_equity_tech":             -8.0,
+        "us_equity_financial":       -15.0,
+        "global_equity_developed":   -12.0,
+        "emerging_markets_equity":   -18.0,
+        "crypto_major":              -25.0,
+        "crypto_alt":                -38.0,
+        "precious_metals":            -5.0,
+        "commodities_energy":        -20.0,
+        "treasury_bonds":             -3.0,
+        "corporate_bonds":           -10.0,
+        "forex_g10":                  -5.0
+      },
+      "proxy_required": []
+    }
+  }
+}
