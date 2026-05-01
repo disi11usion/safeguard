@@ -2012,7 +2012,21 @@ def _cache_put(key: str, data: Dict[str, Any]):
 
 
 def _format_polygon_ticker(symbol: str, category: str) -> Optional[str]:
-    """Map (symbol, category) → Polygon-prefixed ticker, or None if unsupported."""
+    """
+    Map (symbol, category) → Polygon-prefixed ticker, or None if unsupported.
+
+    Polygon prefix conventions:
+      X: → cryptocurrency pair
+      C: → currency / forex pair (also used for spot precious metals)
+      no prefix → US-listed equity
+
+    Limitations on Polygon's free tier:
+      - Real futures (CL=oil, HG=copper, ZC=corn, ZW=wheat) are NOT available;
+        callers requesting category=futures with non-precious symbols get None
+        and the UI falls back to manual entry / no live price.
+      - Forex pairs limited to G10 majors via /v2/aggs.
+      - Most US equities and major cryptos are supported.
+    """
     s = (symbol or "").strip().upper()
     c = (category or "").strip().lower()
     if not s:
@@ -2024,12 +2038,27 @@ def _format_polygon_ticker(symbol: str, category: str) -> Optional[str]:
     if c == "stock":
         return s
     if c == "futures":
-        # Gold/silver: Polygon free tier exposes XAU/XAG as currencies (C: prefix).
-        if s in ("GOLD", "GC"):
-            return "C:XAUUSD"
-        if s in ("SILVER", "SI"):
-            return "C:XAGUSD"
-        return None  # other futures unsupported on free tier
+        # Precious metals: Polygon free tier exposes XAU/XAG/XPT/XPD as currencies (C: prefix).
+        # These are spot prices in USD, NOT actual futures contracts; downstream
+        # consumers should treat them as spot estimates of the underlying metal.
+        precious_metal_aliases = {
+            "GOLD": "C:XAUUSD",
+            "GC": "C:XAUUSD",
+            "XAU": "C:XAUUSD",
+            "SILVER": "C:XAGUSD",
+            "SI": "C:XAGUSD",
+            "XAG": "C:XAGUSD",
+            "PLATINUM": "C:XPTUSD",
+            "PT": "C:XPTUSD",
+            "XPT": "C:XPTUSD",
+            "PALLADIUM": "C:XPDUSD",
+            "PD": "C:XPDUSD",
+            "XPD": "C:XPDUSD",
+        }
+        if s in precious_metal_aliases:
+            return precious_metal_aliases[s]
+        # Real futures contracts (CL, HG, ZC, ZW, NG, etc.) — not available on free tier.
+        return None
     return None
 
 
@@ -2125,3 +2154,89 @@ async def stress_reverse(req: StressReverseRequest):
     except Exception as e:
         log_error(logger, endpoint, e)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Symbol search — Polygon ticker autocomplete for AddAssetModal
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Cache search responses 10 minutes; same query won't re-hit Polygon for 10 min.
+_SYMBOL_SEARCH_CACHE: Dict[str, Dict[str, Any]] = {}
+_SYMBOL_SEARCH_CACHE_TTL_SEC = 600
+
+
+def _category_to_polygon_market(category: str) -> Optional[str]:
+    """Map our category names to Polygon /v3/reference/tickers `market` param."""
+    c = (category or "").lower()
+    return {
+        "stock": "stocks",
+        "crypto": "crypto",
+        "forex": "fx",
+        "futures": None,  # Polygon free tier: no futures market exposed
+    }.get(c)
+
+
+@app.get("/api/symbols/search", tags=["Portfolio"])
+async def search_symbols(
+    q: str = Query(..., min_length=1, max_length=20, description="Partial symbol or name to match"),
+    category: str = Query("stock", description="stock / crypto / forex / futures"),
+    limit: int = Query(8, ge=1, le=20),
+):
+    """
+    Autocomplete-style symbol search backed by Polygon /v3/reference/tickers.
+    Returns up to `limit` candidates matching `q` within the chosen category.
+
+    Cached server-side for 10 minutes per (q, category, limit) to shield the
+    Polygon free-tier rate limits from frontend keystroke typing.
+
+    For category='futures' Polygon free tier has no futures coverage; we return
+    an empty list rather than 5xx so the UI degrades gracefully.
+    """
+    cache_key = f"{category}::{q.lower()}::{limit}"
+    cached = _SYMBOL_SEARCH_CACHE.get(cache_key)
+    if cached and (time.time() - cached["ts"] <= _SYMBOL_SEARCH_CACHE_TTL_SEC):
+        return cached["data"]
+
+    market = _category_to_polygon_market(category)
+    if market is None:
+        body = {"success": True, "category": category, "results": [],
+                "note": "Symbol search not available for this category on the current data plan."}
+        _SYMBOL_SEARCH_CACHE[cache_key] = {"ts": time.time(), "data": body}
+        return body
+
+    api_key = os.getenv("POLYGON_API_KEY")
+    if not api_key:
+        return {"success": False, "error": "POLYGON_API_KEY not configured"}
+
+    url = "https://api.polygon.io/v3/reference/tickers"
+    params = {
+        "search": q,
+        "active": "true",
+        "market": market,
+        "limit": limit,
+        "apiKey": api_key,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            resp = await client.get(url, params=params)
+            if resp.status_code != 200:
+                return {"success": False, "error": f"Polygon returned {resp.status_code}",
+                        "results": []}
+            payload = resp.json()
+            raw_results = payload.get("results", []) or []
+            simplified = [
+                {
+                    "ticker": r.get("ticker"),
+                    "name": r.get("name"),
+                    "market": r.get("market"),
+                    "locale": r.get("locale"),
+                    "type": r.get("type"),
+                }
+                for r in raw_results
+            ]
+            body = {"success": True, "category": category, "results": simplified}
+            _SYMBOL_SEARCH_CACHE[cache_key] = {"ts": time.time(), "data": body}
+            return body
+    except Exception as e:
+        # Don't 500 on upstream failure — return empty list with error note
+        return {"success": False, "error": str(e), "results": []}

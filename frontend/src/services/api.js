@@ -502,6 +502,11 @@ class ApiService {
     return this.makeRequest(`/price/latest?${params.toString()}`, { method: 'GET' }, '/api');
   }
 
+  async searchSymbols(q, category = 'stock', limit = 8) {
+    const params = new URLSearchParams({ q, category, limit: String(limit) });
+    return this.makeRequest(`/symbols/search?${params.toString()}`, { method: 'GET' }, '/api');
+  }
+
   // ───────────── Portfolio Assets (per-user CRUD) ─────────────
 
   async listPortfolioAssets() {

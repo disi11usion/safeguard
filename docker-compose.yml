@@ -54,6 +54,10 @@ services:
       - SMTP_FORCE_IPV4=true
       - MARKET_SHAKE_CSV_DIR=/app/data/csv
       - REDIS_URL=redis://redis:6379/0
+      # Raise psycopg2 ThreadedConnectionPool max from default 20 to 50.
+      # Prevents pool exhaustion during concurrent /v1/disclaimer/accept and
+      # other auth-gated routes. See backend/database/db_pool.py.
+      - DB_POOL_MAXCONN=50
     volumes:
       - ./backend:/app
       - ./data:/app/data:ro

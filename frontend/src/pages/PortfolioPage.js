@@ -333,6 +333,35 @@ function AddAssetModal({ isOpen, onClose, onSubmit, initialAsset = null, mode = 
     setRisk(inferRisk(symbol, category));
   }, [symbol, category, riskOverridden, isOpen]);
 
+  // Symbol autocomplete (debounced 300ms; uses Polygon ticker search)
+  const [searchResults, setSearchResults] = useState([]);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [searching, setSearching] = useState(false);
+  useEffect(() => {
+    if (!isOpen) return;
+    const sym = (symbol || '').trim();
+    if (sym.length < 2) {
+      setSearchResults([]);
+      setShowDropdown(false);
+      return;
+    }
+    setSearching(true);
+    const handle = setTimeout(async () => {
+      try {
+        const resp = await apiService.searchSymbols(sym, category, 8);
+        if (resp?.success) {
+          const results = resp.results || [];
+          setSearchResults(results);
+          setShowDropdown(results.length > 0);
+        }
+      } catch (_) {
+        // silent fail — autocomplete is non-critical
+      }
+      setSearching(false);
+    }, 300);
+    return () => clearTimeout(handle);
+  }, [symbol, category, isOpen]);
+
   // Auto-fetch current price (debounced 500ms) when symbol or category changes.
   const [priceFetchState, setPriceFetchState] = useState('idle'); // idle | loading | ok | error
   const [priceError, setPriceError] = useState(null);
@@ -420,8 +449,55 @@ function AddAssetModal({ isOpen, onClose, onSubmit, initialAsset = null, mode = 
                   placeholder="Search BTC, AAPL, Gold, EUR/USD..."
                   value={symbol}
                   onChange={e => setSymbol(e.target.value)}
+                  onFocus={() => searchResults.length > 0 && setShowDropdown(true)}
+                  onBlur={() => setTimeout(() => setShowDropdown(false), 150)}
                   className="w-full pl-10 pr-4 py-2.5 rounded-lg bg-background border border-border text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  autoComplete="off"
                 />
+                {searching && (
+                  <RefreshCw className="absolute right-3 top-1/2 -translate-y-1/2 h-3 w-3 animate-spin text-muted-foreground" />
+                )}
+                {/* Autocomplete dropdown */}
+                {showDropdown && searchResults.length > 0 && (
+                  <div className="absolute z-10 left-0 right-0 mt-1 bg-card border border-border rounded-lg shadow-xl max-h-64 overflow-y-auto">
+                    {searchResults.map((r) => {
+                      // Strip Polygon prefix (X:, C:) for crypto/forex display
+                      const displayTicker = r.ticker?.replace(/^[XC]:/, '') || r.ticker;
+                      const cleanSymbol = displayTicker?.replace(/USD$/, '') || displayTicker;
+                      return (
+                        <button
+                          key={r.ticker}
+                          type="button"
+                          onMouseDown={(e) => e.preventDefault()}  // prevent input blur before onClick
+                          onClick={() => {
+                            // For crypto: store base symbol (e.g. BTC, not X:BTCUSD)
+                            // For stock: ticker as-is
+                            // For forex: store as e.g. EURUSD (no C: prefix)
+                            const finalSymbol = (category === 'crypto' || category === 'forex')
+                              ? cleanSymbol
+                              : r.ticker;
+                            setSymbol(finalSymbol);
+                            if (r.name) setName(r.name);
+                            setShowDropdown(false);
+                          }}
+                          className="w-full px-3 py-2 text-left hover:bg-secondary/40 transition-colors flex justify-between items-start gap-2 border-b border-border/50 last:border-0"
+                        >
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-foreground">{displayTicker}</p>
+                            {r.name && (
+                              <p className="text-xs text-muted-foreground truncate">{r.name}</p>
+                            )}
+                          </div>
+                          {r.type && (
+                            <span className="text-[10px] text-muted-foreground/70 mt-0.5 whitespace-nowrap">
+                              {r.type}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </div>
 

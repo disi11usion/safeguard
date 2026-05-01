@@ -1,8 +1,22 @@
 {
   "_meta": {
-    "description": "Asset class taxonomy used by stress engine. All asset shocks are defined per class.",
-    "version": "v1",
-    "last_updated": "2026-04-29"
+    "description": "Asset class taxonomy used by stress engine. All asset shocks are defined per class. by_symbol takes precedence over by_category_fallback.",
+    "version": "v2",
+    "last_updated": "2026-05-02",
+    "changelog": [
+      "v1 (2026-04-29): initial 18 hardcoded symbols",
+      "v2 (2026-05-02): expanded to 50+ symbols. Added consumer staples (KO/JNJ/PG/WMT), payment processors (V/MA), media (DIS/MCD), energy (XOM/CVX), ADR/EM stocks (BABA/JD/NIO/TSM/PDD/BIDU), crypto alts (SOL/BNB/ADA/XRP/DOGE/AVAX), precious metal ETFs/synonyms (GLD/IAU/SLV/XAU/XAG). Aligns by_symbol with factor_loadings.json per_symbol coverage."
+    ],
+    "by_symbol_groups": {
+      "crypto_major": ["BTC", "ETH"],
+      "crypto_alt":   ["SOL", "BNB", "ADA", "XRP", "DOGE", "AVAX"],
+      "us_equity_tech": ["AAPL", "MSFT", "GOOGL", "GOOG", "NVDA", "META", "AMZN", "TSLA", "NFLX"],
+      "us_equity_financial": ["JPM", "BAC", "GS", "WFC", "C", "MS"],
+      "us_equity_broad_grouped_consumer_etc": ["KO", "JNJ", "PG", "WMT", "V", "MA", "DIS", "MCD"],
+      "commodities_energy": ["XOM", "CVX"],
+      "emerging_markets_equity": ["BABA", "JD", "NIO", "PDD", "BIDU", "TSM"],
+      "precious_metals": ["Gold", "GC", "SI", "Silver", "XAU", "XAG", "GLD", "IAU", "SLV"]
+    }
   },
   "classes": [
     "us_equity_broad",
@@ -23,6 +37,14 @@
     "by_symbol": {
       "BTC": "crypto_major",
       "ETH": "crypto_major",
+
+      "SOL": "crypto_alt",
+      "BNB": "crypto_alt",
+      "ADA": "crypto_alt",
+      "XRP": "crypto_alt",
+      "DOGE": "crypto_alt",
+      "AVAX": "crypto_alt",
+
       "AAPL": "us_equity_tech",
       "MSFT": "us_equity_tech",
       "GOOGL": "us_equity_tech",
@@ -32,16 +54,42 @@
       "AMZN": "us_equity_tech",
       "TSLA": "us_equity_tech",
       "NFLX": "us_equity_tech",
+
       "JPM": "us_equity_financial",
       "BAC": "us_equity_financial",
       "GS": "us_equity_financial",
       "WFC": "us_equity_financial",
       "C": "us_equity_financial",
       "MS": "us_equity_financial",
+
+      "KO": "us_equity_broad",
+      "JNJ": "us_equity_broad",
+      "PG": "us_equity_broad",
+      "WMT": "us_equity_broad",
+      "V": "us_equity_broad",
+      "MA": "us_equity_broad",
+      "DIS": "us_equity_broad",
+      "MCD": "us_equity_broad",
+
+      "XOM": "commodities_energy",
+      "CVX": "commodities_energy",
+
+      "BABA": "emerging_markets_equity",
+      "JD": "emerging_markets_equity",
+      "NIO": "emerging_markets_equity",
+      "PDD": "emerging_markets_equity",
+      "BIDU": "emerging_markets_equity",
+      "TSM": "emerging_markets_equity",
+
       "Gold": "precious_metals",
       "GC": "precious_metals",
       "SI": "precious_metals",
-      "Silver": "precious_metals"
+      "Silver": "precious_metals",
+      "XAU": "precious_metals",
+      "XAG": "precious_metals",
+      "GLD": "precious_metals",
+      "IAU": "precious_metals",
+      "SLV": "precious_metals"
     },
     "by_category_fallback": {
       "crypto": "crypto_alt",
