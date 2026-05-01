@@ -507,6 +507,17 @@ class ApiService {
     return this.makeRequest(`/symbols/search?${params.toString()}`, { method: 'GET' }, '/api');
   }
 
+  async getPortfolioCorrelation(portfolio, windowDays = 180) {
+    return this.makeRequest(
+      '/portfolio/correlation',
+      {
+        method: 'POST',
+        body: JSON.stringify({ portfolio, window_days: windowDays }),
+      },
+      '/api'
+    );
+  }
+
   // ───────────── Portfolio Assets (per-user CRUD) ─────────────
 
   async listPortfolioAssets() {

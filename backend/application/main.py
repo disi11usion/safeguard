@@ -2240,3 +2240,145 @@ async def search_symbols(
     except Exception as e:
         # Don't 500 on upstream failure — return empty list with error note
         return {"success": False, "error": str(e), "results": []}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Correlation Stress (Optional ② Tier C) — pairwise correlation of user portfolio
+# ─────────────────────────────────────────────────────────────────────────────
+
+from application.services import correlation_engine
+
+# Per-ticker historical close cache: keyed by f"{ticker}::{window_days}"
+# 1-hour TTL — correlations don't shift much in an hour.
+_HISTORY_CACHE: Dict[str, Dict[str, Any]] = {}
+_HISTORY_CACHE_TTL_SEC = 3600
+
+
+class CorrelationRequest(BaseModel):
+    portfolio: list[StressPortfolioAsset]
+    window_days: int = 180
+
+
+def _portfolio_ticker_pairs(portfolio: list) -> list[tuple[str, str, str]]:
+    """
+    Map portfolio entries to (user_symbol, polygon_ticker, category) tuples.
+    Filters out anything Polygon can't serve (returns None ticker).
+    """
+    pairs = []
+    for a in portfolio:
+        sym = a.symbol if hasattr(a, "symbol") else a.get("symbol")
+        cat = a.category if hasattr(a, "category") else a.get("category")
+        ticker = _format_polygon_ticker(sym, cat)
+        if ticker:
+            pairs.append((sym, ticker, cat or "stock"))
+    return pairs
+
+
+async def _fetch_history_with_cache(
+    ticker: str, start_date: str, end_date: str, window_days: int,
+) -> list[dict]:
+    """
+    Fetch daily close history with 1-hour cache. Returns list of dicts
+    with at minimum {date, close}. Empty list if Polygon returns nothing.
+    """
+    cache_key = f"{ticker}::{window_days}"
+    cached = _HISTORY_CACHE.get(cache_key)
+    if cached and (time.time() - cached["ts"] <= _HISTORY_CACHE_TTL_SEC):
+        return cached["data"]
+
+    # Use PolygonClient with format_for_charts=False to get {date, close, ...} dicts
+    raw = await polygon_client.get_historical_data(
+        symbols=[ticker],
+        start_date=start_date,
+        end_date=end_date,
+        timespan="day",
+        format_for_charts=False,
+    )
+    series = raw.get(ticker, []) or []
+    _HISTORY_CACHE[cache_key] = {"ts": time.time(), "data": series}
+    return series
+
+
+@app.post("/api/portfolio/correlation", tags=["Portfolio"])
+async def portfolio_correlation(req: CorrelationRequest):
+    """
+    Pairwise correlation matrix of a portfolio's daily returns.
+
+    Returns a symbol × symbol matrix where matrix[i][j] is the Pearson
+    correlation of (symbol_i daily returns, symbol_j daily returns) over
+    a trailing window. Date alignment is by intersection (all symbols
+    must have prices on the same trading days).
+
+    Compliance: snapshot of past co-movement only. Does not predict
+    future correlations.
+    """
+    endpoint = "POST /api/portfolio/correlation"
+    log_request(logger, endpoint, {
+        "n_assets": len(req.portfolio),
+        "window_days": req.window_days,
+    })
+
+    if req.window_days < 30 or req.window_days > 730:
+        raise HTTPException(status_code=400,
+                            detail="window_days must be between 30 and 730")
+
+    pairs = _portfolio_ticker_pairs(req.portfolio)
+    if not pairs:
+        raise HTTPException(status_code=400,
+                            detail="No tradeable symbols in portfolio (none mappable to a Polygon ticker).")
+
+    # Compute date window
+    today = datetime.now(timezone.utc).date()
+    start = today - timedelta(days=req.window_days + 7)  # +7d buffer for weekends/holidays
+    start_str = start.strftime("%Y-%m-%d")
+    end_str = today.strftime("%Y-%m-%d")
+
+    # Fetch each ticker's history (parallel via asyncio.gather)
+    fetch_tasks = [
+        _fetch_history_with_cache(ticker, start_str, end_str, req.window_days)
+        for (_sym, ticker, _cat) in pairs
+    ]
+    histories = await asyncio.gather(*fetch_tasks, return_exceptions=True)
+
+    # Build prices_by_symbol — {user_symbol: [(date, close), ...]}
+    prices_by_symbol: Dict[str, list] = {}
+    skipped: list[str] = []
+    for (sym, ticker, _cat), hist in zip(pairs, histories):
+        if isinstance(hist, Exception) or not hist:
+            skipped.append(sym)
+            continue
+        try:
+            series = sorted(
+                [(item["date"], float(item["close"])) for item in hist if item.get("close") is not None],
+                key=lambda x: x[0],
+            )
+            if len(series) < 3:
+                skipped.append(sym)
+                continue
+            prices_by_symbol[sym] = series
+        except Exception:
+            skipped.append(sym)
+
+    if not prices_by_symbol:
+        body = {
+            "success": False,
+            "error": "No usable price history for any symbol in portfolio.",
+            "skipped_symbols": skipped,
+            "window_days": req.window_days,
+        }
+        log_response(logger, endpoint, body, success=False)
+        return body
+
+    result = correlation_engine.compute_correlation_matrix(
+        prices_by_symbol, window_days=req.window_days,
+    )
+    if skipped:
+        result["skipped_symbols"] = skipped
+        result.setdefault("diagnostics", {})["skipped_count"] = len(skipped)
+
+    log_response(logger, endpoint, {
+        "symbols": result.get("symbols", []),
+        "n_observations": result.get("n_observations", 0),
+        "skipped": skipped,
+    }, success=result.get("success", False))
+    return result

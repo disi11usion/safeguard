@@ -153,6 +153,170 @@ const SOURCE_BADGE_STYLE = {
 };
 
 // ═══════════════════════════════════════════
+// CORRELATION MATRIX (Diversification Diagnostic)
+// Pairwise correlation heatmap of user's portfolio over a trailing window.
+// Reads recent daily returns, NOT a forecast.
+// ═══════════════════════════════════════════
+
+function correlationCellStyle(v) {
+  // v in [-1, 1]. Color band:
+  //   v >= 0.7   → strong positive → red (concentration risk)
+  //   v in [0.4, 0.7) → moderate positive → orange
+  //   v in [0.1, 0.4) → weak positive → yellow
+  //   v in [-0.1, 0.1) → near-zero → neutral gray
+  //   v in [-0.4, -0.1) → weak negative → light green
+  //   v < -0.4   → strong negative → dark green (good diversifier)
+  if (v >= 0.7)  return 'bg-red-500/40 text-red-100';
+  if (v >= 0.4)  return 'bg-orange-500/30 text-orange-100';
+  if (v >= 0.1)  return 'bg-yellow-500/25 text-yellow-100';
+  if (v >= -0.1) return 'bg-secondary/50 text-muted-foreground';
+  if (v >= -0.4) return 'bg-emerald-500/25 text-emerald-100';
+  return 'bg-emerald-600/45 text-emerald-50';
+}
+
+function CorrelationMatrix({ data, loading, error, assets }) {
+  if (!assets || assets.length === 0) {
+    return (
+      <div className="bg-card border border-border rounded-xl p-6 text-center text-muted-foreground text-sm">
+        Add at least two assets to see correlation analysis.
+      </div>
+    );
+  }
+  if (loading) {
+    return (
+      <div className="bg-card border border-border rounded-xl p-6 text-center text-muted-foreground text-sm flex items-center justify-center gap-2">
+        <RefreshCw className="h-4 w-4 animate-spin" /> Computing correlations from 180 days of price history…
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 text-sm text-red-300">
+        Correlation engine error: {error}
+      </div>
+    );
+  }
+  if (!data || !data.success) {
+    const reason = data?.diagnostics?.reason || data?.error || 'Insufficient data';
+    return (
+      <div className="bg-card border border-border rounded-xl p-6 text-center text-muted-foreground text-sm">
+        {reason}
+        {data?.skipped_symbols?.length > 0 && (
+          <p className="text-xs mt-2 opacity-70">
+            Skipped (no Polygon history): {data.skipped_symbols.join(', ')}
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  const { symbols, matrix, diagnostics, n_observations, window_days, computed_at, skipped_symbols } = data;
+  const n = symbols.length;
+  if (n === 0) return null;
+
+  return (
+    <div className="space-y-4">
+      {/* Heatmap */}
+      <div className="bg-card border border-border rounded-2xl p-5 overflow-x-auto">
+        <div className="inline-block min-w-full">
+          <table className="text-xs font-mono">
+            <thead>
+              <tr>
+                <th className="p-1.5 w-16"></th>
+                {symbols.map((s) => (
+                  <th key={s} className="p-1.5 text-foreground font-semibold text-center min-w-[64px]">
+                    {s}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {symbols.map((rowSym, i) => (
+                <tr key={rowSym}>
+                  <th className="p-1.5 text-foreground font-semibold text-right pr-3">{rowSym}</th>
+                  {matrix[i].map((v, j) => (
+                    <td
+                      key={j}
+                      className={`p-1.5 text-center min-w-[64px] ${correlationCellStyle(v)}`}
+                      title={`${rowSym} vs ${symbols[j]}: ${v.toFixed(3)}`}
+                    >
+                      {i === j ? '—' : v.toFixed(2)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Color legend */}
+        <div className="mt-4 flex flex-wrap items-center gap-3 text-[10px] text-muted-foreground">
+          <span>Color scale:</span>
+          <span className="flex items-center gap-1"><span className="w-4 h-3 bg-red-500/40 rounded-sm"></span>≥ 0.7 high concentration</span>
+          <span className="flex items-center gap-1"><span className="w-4 h-3 bg-orange-500/30 rounded-sm"></span>0.4 – 0.7</span>
+          <span className="flex items-center gap-1"><span className="w-4 h-3 bg-yellow-500/25 rounded-sm"></span>0.1 – 0.4</span>
+          <span className="flex items-center gap-1"><span className="w-4 h-3 bg-secondary/50 rounded-sm"></span>≈ 0 (neutral)</span>
+          <span className="flex items-center gap-1"><span className="w-4 h-3 bg-emerald-500/25 rounded-sm"></span>negative (diversifier)</span>
+        </div>
+      </div>
+
+      {/* Narrative diagnostics */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {diagnostics?.highest_pair && (
+          <div className="bg-card border border-red-500/30 rounded-xl p-4">
+            <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">
+              Most Concentrated Pair
+            </p>
+            <p className="text-sm font-bold text-foreground">
+              {diagnostics.highest_pair.a} ↔ {diagnostics.highest_pair.b}
+            </p>
+            <p className="text-2xl font-bold text-red-400 mt-1">
+              {diagnostics.highest_pair.corr.toFixed(2)}
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              These two assets have moved {Math.abs(diagnostics.highest_pair.corr * 100).toFixed(0)}% in lockstep over the past {window_days} days. Holding both provides limited diversification.
+            </p>
+          </div>
+        )}
+        {diagnostics?.best_diversifier && (
+          <div className="bg-card border border-emerald-500/30 rounded-xl p-4">
+            <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">
+              Strongest Diversifier
+            </p>
+            <p className="text-sm font-bold text-foreground">
+              {diagnostics.best_diversifier.symbol}
+            </p>
+            <p className="text-2xl font-bold text-emerald-400 mt-1">
+              {diagnostics.best_diversifier.avg_corr_excluding_self.toFixed(2)}
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Average correlation with other holdings is the lowest. This asset reduced your portfolio's typical co-movement most over the window.
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* Coverage + disclosure */}
+      <div className="bg-muted/20 border border-border rounded-lg p-3 flex items-start gap-2">
+        <Info className="h-4 w-4 mt-0.5 flex-shrink-0 text-muted-foreground" />
+        <div className="text-xs text-muted-foreground space-y-1">
+          <p>
+            Computed from {n_observations} daily return observations across {window_days} calendar days.
+            {skipped_symbols && skipped_symbols.length > 0 && (
+              <span className="text-orange-300"> Skipped: {skipped_symbols.join(', ')} (no Polygon history).</span>
+            )}
+          </p>
+          <p>
+            {data.disclosure_text || 'Past correlations do not predict future correlations. This is observation, not forecast.'}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+// ═══════════════════════════════════════════
 // REVERSE STRESS PANEL
 // Asks: "Which scenarios in our library would breach my loss threshold?"
 // Answers by scanning all 21 scenarios and ranking by severity.
@@ -706,6 +870,40 @@ export default function PortfolioPage() {
   const [reverseResult, setReverseResult] = useState(null);
   const [reverseLoading, setReverseLoading] = useState(false);
   const [reverseError, setReverseError] = useState(null);
+
+  // Correlation Matrix state
+  const [correlationData, setCorrelationData] = useState(null);
+  const [correlationLoading, setCorrelationLoading] = useState(false);
+  const [correlationError, setCorrelationError] = useState(null);
+  // Fetch correlation when assets change (and there are ≥2)
+  useEffect(() => {
+    if (!assets || assets.length < 2) {
+      setCorrelationData(null);
+      return;
+    }
+    let cancelled = false;
+    const fetchCorr = async () => {
+      setCorrelationLoading(true);
+      setCorrelationError(null);
+      try {
+        const portfolio = assets.map(a => ({
+          symbol: a.symbol,
+          name: a.name,
+          category: a.category,
+          weight: a.weight,
+        }));
+        const resp = await apiService.getPortfolioCorrelation(portfolio, 180);
+        if (!cancelled) setCorrelationData(resp);
+      } catch (e) {
+        if (!cancelled) setCorrelationError(e.message || 'Failed to fetch correlation');
+      } finally {
+        if (!cancelled) setCorrelationLoading(false);
+      }
+    };
+    fetchCorr();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assets.map(a => `${a.symbol}|${a.category}`).join(',')]);
 
   // Fetch stress results when module or assets change.
   // Skip for the special "reverse_stress" module — it has its own on-demand trigger.
@@ -1269,6 +1467,32 @@ export default function PortfolioPage() {
             </p>
           </div>
         </div>
+      </motion.div>
+
+      {/* ═══ SECTION 4.5: DIVERSIFICATION MATRIX (Correlation) ═══ */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.45 }}
+        className="mb-8"
+      >
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
+            <Activity className="h-5 w-5 text-primary" />
+            Diversification Matrix
+          </h2>
+          {correlationLoading && (
+            <span className="text-xs text-muted-foreground flex items-center gap-1.5">
+              <RefreshCw className="h-3 w-3 animate-spin" /> Loading…
+            </span>
+          )}
+        </div>
+        <CorrelationMatrix
+          data={correlationData}
+          loading={correlationLoading}
+          error={correlationError}
+          assets={assets}
+        />
       </motion.div>
 
       {/* ═══ SECTION 5: AI COMMENTARY ═══ */}
