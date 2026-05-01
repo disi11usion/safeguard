@@ -4,4 +4,6 @@ __pycache__/
 *.log
 *.ini
 *.md
+# Allow data-source / stress-engine documentation (overrides *.md above)
+!application/services/stress_configs/README.md
 _lib/*.py
