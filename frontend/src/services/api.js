@@ -518,6 +518,23 @@ class ApiService {
     );
   }
 
+  async getPortfolioAISummary(portfolio, opts = {}) {
+    const { stressResults = null, correlationData = null, forceRefresh = false } = opts;
+    return this.makeRequest(
+      '/portfolio/ai-summary',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          portfolio,
+          stress_results: stressResults,
+          correlation_data: correlationData,
+          force_refresh: forceRefresh,
+        }),
+      },
+      '/api'
+    );
+  }
+
   // ───────────── Portfolio Assets (per-user CRUD) ─────────────
 
   async listPortfolioAssets() {

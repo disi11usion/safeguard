@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Shield, Plus, Upload, TrendingUp,
@@ -159,19 +159,16 @@ const SOURCE_BADGE_STYLE = {
 // ═══════════════════════════════════════════
 
 function correlationCellStyle(v) {
-  // v in [-1, 1]. Color band:
-  //   v >= 0.7   → strong positive → red (concentration risk)
-  //   v in [0.4, 0.7) → moderate positive → orange
-  //   v in [0.1, 0.4) → weak positive → yellow
-  //   v in [-0.1, 0.1) → near-zero → neutral gray
-  //   v in [-0.4, -0.1) → weak negative → light green
-  //   v < -0.4   → strong negative → dark green (good diversifier)
-  if (v >= 0.7)  return 'bg-red-500/40 text-red-100';
-  if (v >= 0.4)  return 'bg-orange-500/30 text-orange-100';
-  if (v >= 0.1)  return 'bg-yellow-500/25 text-yellow-100';
-  if (v >= -0.1) return 'bg-secondary/50 text-muted-foreground';
-  if (v >= -0.4) return 'bg-emerald-500/25 text-emerald-100';
-  return 'bg-emerald-600/45 text-emerald-50';
+  // 6-band color scale, with stronger saturation for clearer reading.
+  // Using opacity scaling within each band so values close to band edges show subtle
+  // gradation instead of hard cliffs.
+  const abs = Math.abs(v);
+  if (v >= 0.7)  return { bg: `rgba(239, 68, 68, ${0.35 + abs * 0.35})`,   fg: '#fef2f2' };  // red
+  if (v >= 0.4)  return { bg: `rgba(249, 115, 22, ${0.25 + abs * 0.30})`,  fg: '#fff7ed' };  // orange
+  if (v >= 0.1)  return { bg: `rgba(234, 179, 8, ${0.20 + abs * 0.25})`,   fg: '#fef9c3' };  // yellow
+  if (v >= -0.1) return { bg: 'rgba(100, 116, 139, 0.18)',                 fg: '#94a3b8' };  // neutral slate
+  if (v >= -0.4) return { bg: `rgba(16, 185, 129, ${0.20 + abs * 0.25})`,  fg: '#d1fae5' };  // light emerald
+  return            { bg: `rgba(5, 150, 105, ${0.40 + abs * 0.25})`,       fg: '#ecfdf5' };  // dark emerald
 }
 
 function CorrelationMatrix({ data, loading, error, assets }) {
@@ -210,106 +207,196 @@ function CorrelationMatrix({ data, loading, error, assets }) {
     );
   }
 
-  const { symbols, matrix, diagnostics, n_observations, window_days, computed_at, skipped_symbols } = data;
+  const { symbols, matrix, diagnostics, n_observations, window_days, skipped_symbols } = data;
   const n = symbols.length;
   if (n === 0) return null;
 
+  // Vertical legend bands with explanatory text
+  const legendBands = [
+    { range: '≥ 0.70',     label: 'Move in lockstep',      tone: 'rgba(239, 68, 68, 0.65)' },
+    { range: '0.40 – 0.70', label: 'Moderately co-moving', tone: 'rgba(249, 115, 22, 0.55)' },
+    { range: '0.10 – 0.40', label: 'Weakly correlated',    tone: 'rgba(234, 179, 8, 0.45)' },
+    { range: '−0.10 – 0.10', label: 'Independent',          tone: 'rgba(100, 116, 139, 0.40)' },
+    { range: '−0.40 – −0.10', label: 'Mild diversifier',    tone: 'rgba(16, 185, 129, 0.45)' },
+    { range: '< −0.40',     label: 'Strong opposite mover', tone: 'rgba(5, 150, 105, 0.65)' },
+  ];
+
   return (
-    <div className="space-y-4">
-      {/* Heatmap */}
-      <div className="bg-card border border-border rounded-2xl p-5 overflow-x-auto">
-        <div className="inline-block min-w-full">
-          <table className="text-xs font-mono">
-            <thead>
-              <tr>
-                <th className="p-1.5 w-16"></th>
-                {symbols.map((s) => (
-                  <th key={s} className="p-1.5 text-foreground font-semibold text-center min-w-[64px]">
-                    {s}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {symbols.map((rowSym, i) => (
-                <tr key={rowSym}>
-                  <th className="p-1.5 text-foreground font-semibold text-right pr-3">{rowSym}</th>
-                  {matrix[i].map((v, j) => (
-                    <td
-                      key={j}
-                      className={`p-1.5 text-center min-w-[64px] ${correlationCellStyle(v)}`}
-                      title={`${rowSym} vs ${symbols[j]}: ${v.toFixed(3)}`}
-                    >
-                      {i === j ? '—' : v.toFixed(2)}
-                    </td>
+    <div className="space-y-5">
+      {/* Skipped-symbols warning (prominent, before matrix) */}
+      {skipped_symbols && skipped_symbols.length > 0 && (
+        <div className="bg-orange-500/10 border border-orange-500/30 rounded-xl p-3 flex items-start gap-2">
+          <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0 text-orange-400" />
+          <div className="text-xs text-orange-200 leading-relaxed">
+            <strong className="text-orange-100">{skipped_symbols.length} asset{skipped_symbols.length === 1 ? '' : 's'} not included:</strong>{' '}
+            {skipped_symbols.join(', ')}.
+            {' '}<span className="text-orange-200/70">No daily price history was available from Polygon for these symbols (could be a less-traded ticker or transient rate-limiting). The matrix below covers the remaining {symbols.length} asset{symbols.length === 1 ? '' : 's'} only.</span>
+          </div>
+        </div>
+      )}
+
+      {/* Top: matrix on left, explainer on right */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        {/* Heatmap */}
+        <div className="lg:col-span-2 bg-card border border-border rounded-2xl p-5">
+          <div className="overflow-x-auto">
+            <div className="inline-block min-w-full">
+              <table className="border-separate" style={{ borderSpacing: '4px' }}>
+                <thead>
+                  <tr>
+                    <th className="p-1 w-14"></th>
+                    {symbols.map((s) => (
+                      <th key={s} className="px-2 py-1 text-foreground font-semibold text-center text-xs">
+                        <span className="inline-block bg-secondary/40 rounded-md px-2 py-0.5">{s}</span>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {symbols.map((rowSym, i) => (
+                    <tr key={rowSym}>
+                      <th className="px-2 py-1 text-foreground font-semibold text-right">
+                        <span className="inline-block bg-secondary/40 rounded-md px-2 py-0.5 text-xs">{rowSym}</span>
+                      </th>
+                      {matrix[i].map((v, j) => {
+                        const isDiag = i === j;
+                        const style = correlationCellStyle(v);
+                        return (
+                          <td
+                            key={j}
+                            className={`text-center text-xs font-mono font-medium rounded-md transition-transform hover:scale-110 hover:z-10 hover:relative ${
+                              isDiag ? 'bg-card border border-border/60 text-muted-foreground' : 'cursor-default'
+                            }`}
+                            style={isDiag ? {} : { backgroundColor: style.bg, color: style.fg, minWidth: '54px', height: '40px' }}
+                            title={`${rowSym} ↔ ${symbols[j]}: ${v.toFixed(3)}`}
+                          >
+                            {isDiag ? '·' : v.toFixed(2)}
+                          </td>
+                        );
+                      })}
+                    </tr>
                   ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Coverage line */}
+          <div className="mt-4 pt-3 border-t border-border/40 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
+            <span><span className="text-foreground font-medium">{n_observations}</span> daily returns</span>
+            <span className="opacity-50">·</span>
+            <span>{window_days}-day window</span>
+            <span className="opacity-50">·</span>
+            <span>{n} × {n} matrix</span>
+            {skipped_symbols && skipped_symbols.length > 0 && (
+              <>
+                <span className="opacity-50">·</span>
+                <span className="text-orange-300">Skipped: {skipped_symbols.join(', ')}</span>
+              </>
+            )}
+          </div>
         </div>
 
-        {/* Color legend */}
-        <div className="mt-4 flex flex-wrap items-center gap-3 text-[10px] text-muted-foreground">
-          <span>Color scale:</span>
-          <span className="flex items-center gap-1"><span className="w-4 h-3 bg-red-500/40 rounded-sm"></span>≥ 0.7 high concentration</span>
-          <span className="flex items-center gap-1"><span className="w-4 h-3 bg-orange-500/30 rounded-sm"></span>0.4 – 0.7</span>
-          <span className="flex items-center gap-1"><span className="w-4 h-3 bg-yellow-500/25 rounded-sm"></span>0.1 – 0.4</span>
-          <span className="flex items-center gap-1"><span className="w-4 h-3 bg-secondary/50 rounded-sm"></span>≈ 0 (neutral)</span>
-          <span className="flex items-center gap-1"><span className="w-4 h-3 bg-emerald-500/25 rounded-sm"></span>negative (diversifier)</span>
+        {/* Right: explanatory panel */}
+        <div className="bg-card border border-border rounded-2xl p-5 space-y-4">
+          <div>
+            <h3 className="text-sm font-semibold text-foreground mb-2 flex items-center gap-2">
+              <Info className="h-4 w-4 text-primary" />
+              How to read this
+            </h3>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              Each cell shows how closely two assets have moved together over the past {window_days} days. The number ranges from{' '}
+              <span className="text-emerald-400 font-mono">−1</span> (perfectly opposite) to{' '}
+              <span className="text-red-400 font-mono">+1</span> (perfectly in sync).
+            </p>
+          </div>
+
+          {/* Vertical legend */}
+          <div>
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">Color scale</p>
+            <div className="space-y-1">
+              {legendBands.map((b, idx) => (
+                <div key={idx} className="flex items-center gap-2 text-[11px]">
+                  <span
+                    className="w-7 h-4 rounded-sm flex-shrink-0 border border-white/10"
+                    style={{ backgroundColor: b.tone }}
+                  />
+                  <span className="font-mono text-muted-foreground w-24 flex-shrink-0">{b.range}</span>
+                  <span className="text-foreground/80">{b.label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Reading tips */}
+          <div className="pt-3 border-t border-border/40">
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">What to look for</p>
+            <ul className="text-xs text-muted-foreground space-y-1.5 leading-snug">
+              <li className="flex items-start gap-1.5">
+                <span className="text-red-400 mt-0.5">●</span>
+                <span><strong className="text-foreground">Lots of red</strong> = portfolio is concentrated; a single market move hits everything together.</span>
+              </li>
+              <li className="flex items-start gap-1.5">
+                <span className="text-emerald-400 mt-0.5">●</span>
+                <span><strong className="text-foreground">Greens</strong> = real diversification; these assets tend to move opposite to others.</span>
+              </li>
+              <li className="flex items-start gap-1.5">
+                <span className="text-muted-foreground mt-0.5">●</span>
+                <span>The matrix is <strong className="text-foreground">symmetric</strong> — top-right mirrors bottom-left.</span>
+              </li>
+              <li className="flex items-start gap-1.5">
+                <span className="text-muted-foreground mt-0.5">●</span>
+                <span>The diagonal (an asset with itself) is always 1.</span>
+              </li>
+            </ul>
+          </div>
         </div>
       </div>
 
-      {/* Narrative diagnostics */}
+      {/* Diagnostic cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {diagnostics?.highest_pair && (
-          <div className="bg-card border border-red-500/30 rounded-xl p-4">
-            <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">
+          <div className="bg-card border border-red-500/30 rounded-xl p-4 relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-24 h-24 bg-red-500/5 rounded-full blur-2xl" />
+            <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1 relative">
               Most Concentrated Pair
             </p>
-            <p className="text-sm font-bold text-foreground">
+            <p className="text-sm font-bold text-foreground relative">
               {diagnostics.highest_pair.a} ↔ {diagnostics.highest_pair.b}
             </p>
-            <p className="text-2xl font-bold text-red-400 mt-1">
+            <p className="text-3xl font-bold text-red-400 mt-1 relative tracking-tight">
               {diagnostics.highest_pair.corr.toFixed(2)}
             </p>
-            <p className="text-xs text-muted-foreground mt-1">
-              These two assets have moved {Math.abs(diagnostics.highest_pair.corr * 100).toFixed(0)}% in lockstep over the past {window_days} days. Holding both provides limited diversification.
+            <p className="text-xs text-muted-foreground mt-2 relative leading-relaxed">
+              These two have moved <span className="text-foreground font-medium">{Math.abs(diagnostics.highest_pair.corr * 100).toFixed(0)}%</span> in lockstep over the past {window_days} days. Holding both provides limited diversification.
             </p>
           </div>
         )}
         {diagnostics?.best_diversifier && (
-          <div className="bg-card border border-emerald-500/30 rounded-xl p-4">
-            <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">
+          <div className="bg-card border border-emerald-500/30 rounded-xl p-4 relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/5 rounded-full blur-2xl" />
+            <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1 relative">
               Strongest Diversifier
             </p>
-            <p className="text-sm font-bold text-foreground">
+            <p className="text-sm font-bold text-foreground relative">
               {diagnostics.best_diversifier.symbol}
             </p>
-            <p className="text-2xl font-bold text-emerald-400 mt-1">
+            <p className="text-3xl font-bold text-emerald-400 mt-1 relative tracking-tight">
               {diagnostics.best_diversifier.avg_corr_excluding_self.toFixed(2)}
             </p>
-            <p className="text-xs text-muted-foreground mt-1">
+            <p className="text-xs text-muted-foreground mt-2 relative leading-relaxed">
               Average correlation with other holdings is the lowest. This asset reduced your portfolio's typical co-movement most over the window.
             </p>
           </div>
         )}
       </div>
 
-      {/* Coverage + disclosure */}
+      {/* Disclosure */}
       <div className="bg-muted/20 border border-border rounded-lg p-3 flex items-start gap-2">
         <Info className="h-4 w-4 mt-0.5 flex-shrink-0 text-muted-foreground" />
-        <div className="text-xs text-muted-foreground space-y-1">
-          <p>
-            Computed from {n_observations} daily return observations across {window_days} calendar days.
-            {skipped_symbols && skipped_symbols.length > 0 && (
-              <span className="text-orange-300"> Skipped: {skipped_symbols.join(', ')} (no Polygon history).</span>
-            )}
-          </p>
-          <p>
-            {data.disclosure_text || 'Past correlations do not predict future correlations. This is observation, not forecast.'}
-          </p>
-        </div>
+        <p className="text-xs text-muted-foreground leading-relaxed">
+          {data.disclosure_text || 'Past correlations do not predict future correlations. This is observation, not forecast.'}
+        </p>
       </div>
     </div>
   );
@@ -462,8 +549,17 @@ function AddAssetModal({ isOpen, onClose, onSubmit, initialAsset = null, mode = 
   const [riskOverridden, setRiskOverridden] = useState(false);
   const [showRiskOverride, setShowRiskOverride] = useState(false);
 
+  // Initialize fields exactly ONCE per open. We use a ref guard so even if `initialAsset`
+  // reference changes mid-edit (e.g. parent re-renders pass a recomputed asset object after
+  // a price refresh), we don't blow away the user's typed input.
+  const initializedRef = useRef(false);
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      initializedRef.current = false;
+      return;
+    }
+    if (initializedRef.current) return;
+    initializedRef.current = true;
 
     if (initialAsset) {
       setSymbol(initialAsset.symbol || '');
@@ -472,9 +568,13 @@ function AddAssetModal({ isOpen, onClose, onSubmit, initialAsset = null, mode = 
       setWeight(String(initialAsset.weight ?? ''));
       setEntryPrice(String(initialAsset.entryPrice ?? ''));
       setCurrentPrice(String(initialAsset.currentPrice ?? ''));
-      // For edits, treat the existing risk as "user-set" so we don't auto-overwrite.
-      setRisk(initialAsset.risk || inferRisk(initialAsset.symbol, initialAsset.category));
-      setRiskOverridden(true);
+      // Risk: only treat as "manually overridden" if saved risk differs from what
+      // inferRisk would compute for the saved (symbol, category). If they match,
+      // keep it in auto mode so changing the category recomputes risk.
+      const computed = inferRisk(initialAsset.symbol, initialAsset.category);
+      const savedRisk = initialAsset.risk || computed;
+      setRisk(savedRisk);
+      setRiskOverridden(savedRisk !== computed);
       setShowRiskOverride(false);
       return;
     }
@@ -720,15 +820,23 @@ function AddAssetModal({ isOpen, onClose, onSubmit, initialAsset = null, mode = 
             </div>
 
             <div>
-              <label className="text-sm text-muted-foreground mb-1 block">Weight (%)</label>
+              <label className="text-sm text-muted-foreground mb-1 block">Quantity (units held)</label>
               <input
                 type="number"
-                placeholder="e.g. 25"
+                placeholder="e.g. 0.5 (BTC), 100 (shares), 10 (oz)"
                 value={weight}
                 onChange={e => setWeight(e.target.value)}
-                min="0" max="100"
+                min="0" step="any"
                 className="w-full px-4 py-2.5 rounded-lg bg-background border border-border text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
               />
+              <p className="text-[11px] text-muted-foreground mt-1.5 leading-snug">
+                Number of units you hold. Portfolio weight (%) is auto-calculated from quantity × current price ÷ total portfolio value.
+              </p>
+              {Number(weight) > 0 && Number(entryPrice) > 0 && (
+                <p className="text-[11px] text-emerald-300 mt-1 font-mono">
+                  ≈ ${(Number(weight) * Number(entryPrice)).toLocaleString(undefined, { maximumFractionDigits: 2 })} value (at your entry price)
+                </p>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-3">
@@ -782,9 +890,25 @@ function AddAssetModal({ isOpen, onClose, onSubmit, initialAsset = null, mode = 
 // MAIN PAGE COMPONENT
 // ═══════════════════════════════════════════
 
+// localStorage key for anonymous-mode portfolio persistence.
+// When the user is not logged in (or auth call fails), we still let them play
+// with the portfolio and persist their edits to the browser so navigation /
+// page refresh doesn't wipe them out. Logged-in users always operate against DB.
+const DEMO_STORAGE_KEY = 'safeguard_demo_assets';
+
+function loadDemoAssetsFromStorage() {
+  try {
+    const raw = localStorage.getItem(DEMO_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+  } catch (_) { /* corrupt storage → ignore */ }
+  return null;
+}
+
 export default function PortfolioPage() {
   const { user } = useAuth();
-  const [assets, setAssets] = useState(MOCK_ASSETS);
+  const [assets, setAssets] = useState(() => loadDemoAssetsFromStorage() || MOCK_ASSETS);
   const [assetsLoaded, setAssetsLoaded] = useState(false);
   const [usingDemo, setUsingDemo] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -796,25 +920,37 @@ export default function PortfolioPage() {
   // 60s polling — refresh current prices for every asset in the portfolio.
   // Aligned with backend cache TTL (60s), so each poll round triggers exactly one
   // Polygon call per asset. For 5 assets this is ~5 calls/min, exactly at free-tier limit.
+  // We patch ONLY currentPrice via a functional update so any concurrent edits to
+  // weight/entryPrice/name/risk are never clobbered by a stale closure.
   useEffect(() => {
     if (!assets.length) return;
     let cancelled = false;
     const refreshPrices = async () => {
       try {
-        const updated = await Promise.all(assets.map(async (a) => {
+        const fetched = await Promise.all(assets.map(async (a) => {
           try {
             const resp = await apiService.getLatestPrice(a.symbol, a.category);
             if (resp?.success && resp.price != null) {
-              return { ...a, currentPrice: resp.price };
+              return { id: a.id, price: resp.price };
             }
           } catch (_) { /* keep existing price on failure */ }
-          return a;
+          return null;
         }));
-        if (!cancelled) {
-          // Avoid noisy re-renders: only update if any price actually changed.
-          const changed = updated.some((u, i) => u.currentPrice !== assets[i].currentPrice);
-          if (changed) setAssets(updated);
-        }
+        if (cancelled) return;
+        const priceById = new Map(fetched.filter(Boolean).map(x => [x.id, x.price]));
+        if (priceById.size === 0) return;
+        setAssets(prev => {
+          let mutated = false;
+          const next = prev.map(a => {
+            const newPrice = priceById.get(a.id);
+            if (newPrice != null && newPrice !== a.currentPrice) {
+              mutated = true;
+              return { ...a, currentPrice: newPrice };
+            }
+            return a;
+          });
+          return mutated ? next : prev;
+        });
       } catch (_) { /* swallow */ }
     };
     // Run once immediately, then every 60s.
@@ -833,7 +969,8 @@ export default function PortfolioPage() {
     let cancelled = false;
     const loadAssets = async () => {
       if (!user) {
-        setAssets(MOCK_ASSETS);
+        // Anonymous: prefer previously-saved demo edits in localStorage; otherwise mock.
+        setAssets(loadDemoAssetsFromStorage() || MOCK_ASSETS);
         setUsingDemo(true);
         setAssetsLoaded(true);
         return;
@@ -847,9 +984,10 @@ export default function PortfolioPage() {
           setAssetsLoaded(true);
         }
       } catch (e) {
-        // Auth/network error — degrade to demo so page isn't broken
+        // Auth/network error — degrade to demo so page isn't broken; preserve any
+        // edits the user made in the browser.
         if (!cancelled) {
-          setAssets(MOCK_ASSETS);
+          setAssets(loadDemoAssetsFromStorage() || MOCK_ASSETS);
           setUsingDemo(true);
           setAssetsLoaded(true);
         }
@@ -858,6 +996,15 @@ export default function PortfolioPage() {
     loadAssets();
     return () => { cancelled = true; };
   }, [user]);
+
+  // Persist demo-mode edits to localStorage so they survive navigation/refresh.
+  // Logged-in users skip this — their source of truth is the DB.
+  useEffect(() => {
+    if (!assetsLoaded || !usingDemo) return;
+    try {
+      localStorage.setItem(DEMO_STORAGE_KEY, JSON.stringify(assets));
+    } catch (_) { /* quota / private mode — silently degrade to in-memory only */ }
+  }, [assets, usingDemo, assetsLoaded]);
 
   // Stress Engine state
   const [selectedStressModule, setSelectedStressModule] = useState('historical_replay');
@@ -875,6 +1022,157 @@ export default function PortfolioPage() {
   const [correlationData, setCorrelationData] = useState(null);
   const [correlationLoading, setCorrelationLoading] = useState(false);
   const [correlationError, setCorrelationError] = useState(null);
+
+  // Pie comparison: which scenario is shown in the "stressed" pie next to current allocation
+  const [pieScenarioId, setPieScenarioId] = useState(null);
+
+  // ALL stress scenarios across ALL stress modules (fetched once when assets change).
+  // Independent of SECTION 3's selectedStressModule — pie picker spans all 26 scenarios.
+  const [allStressResults, setAllStressResults] = useState({}); // { module_id: [results...] }
+
+  useEffect(() => {
+    if (!assets.length) {
+      setAllStressResults({});
+      return;
+    }
+    let cancelled = false;
+    const fetchAll = async () => {
+      const totalValue = assets.reduce((s, a) => s + (a.entryPrice || 0) * (a.weight || 0), 0);
+      const portfolio = assets.map(a => {
+        const value = (a.entryPrice || 0) * (a.weight || 0);
+        return {
+          symbol: a.symbol,
+          name: a.name,
+          category: a.category,
+          weight: totalValue > 0 ? (value / totalValue) * 100 : 0,
+        };
+      });
+      const moduleIds = [
+        'historical_replay', 'market_shock', 'rate_shock',
+        'liquidity_shock', 'black_swan_proxy', 'factor_shock',
+      ];
+      const acc = {};
+      // Run in parallel — backend stress engine is pure-Python, no rate limit
+      try {
+        const responses = await Promise.all(
+          moduleIds.map(m => apiService.applyAllStress(portfolio, m).catch(() => null))
+        );
+        moduleIds.forEach((m, i) => {
+          const resp = responses[i];
+          if (resp?.success && Array.isArray(resp.results)) {
+            acc[m] = resp.results;
+          }
+        });
+      } catch (e) { /* swallow */ }
+      if (!cancelled) setAllStressResults(acc);
+    };
+    fetchAll();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assets.map(a => `${a.symbol}|${a.category}|${a.weight}|${a.entryPrice}`).join(',')]);
+
+  // Auto-pick default scenario (first historical replay) once results land
+  useEffect(() => {
+    if (pieScenarioId) return;
+    const firstHist = allStressResults?.historical_replay?.[0];
+    if (firstHist) setPieScenarioId(firstHist.scenario_id);
+  }, [allStressResults, pieScenarioId]);
+
+  // ── AI Summary state ────────────────────────────────────────────────
+  const [aiSummary, setAiSummary] = useState(null);   // { summary, source, cached, ... }
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState(null);
+  const [aiRefreshTick, setAiRefreshTick] = useState(0);  // bumped by Refresh button
+
+  // Fetch AI summary whenever the portfolio composition changes (debounced 1.5s).
+  // Server caches by SHA256(facts) for 24h, so identical compositions are free.
+  useEffect(() => {
+    if (!assets.length) {
+      setAiSummary(null);
+      return;
+    }
+    let cancelled = false;
+    const totalValue = assets.reduce((s, a) => s + (a.entryPrice || 0) * (a.weight || 0), 0);
+    const portfolio = assets.map(a => {
+      const value = (a.entryPrice || 0) * (a.weight || 0);
+      return {
+        symbol: a.symbol,
+        name: a.name,
+        category: a.category,
+        weight: totalValue > 0 ? (value / totalValue) * 100 : 0,
+      };
+    });
+    // Flatten allStressResults { module: [results] } → list for facts builder
+    const flatStress = Object.values(allStressResults || {}).flat();
+
+    const timer = setTimeout(async () => {
+      setAiLoading(true);
+      setAiError(null);
+      try {
+        const resp = await apiService.getPortfolioAISummary(portfolio, {
+          stressResults: flatStress.length ? flatStress : null,
+          correlationData: correlationData || null,
+          forceRefresh: aiRefreshTick > 0,
+        });
+        if (!cancelled) {
+          if (resp?.success && resp.summary) {
+            setAiSummary(resp);
+          } else {
+            setAiError('AI summary unavailable.');
+          }
+        }
+      } catch (e) {
+        if (!cancelled) setAiError(e?.message || 'Network error.');
+      } finally {
+        if (!cancelled) setAiLoading(false);
+      }
+    }, 1500);
+    return () => { cancelled = true; clearTimeout(timer); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    assets.map(a => `${a.symbol}|${a.category}|${a.weight}|${a.entryPrice}`).join(','),
+    Object.keys(allStressResults || {}).length,
+    correlationData ? 'corr' : 'no-corr',
+    aiRefreshTick,
+  ]);
+
+  // Build stressedAssets — search across all modules for the picked scenario
+  const stressedAssetsForPie = useMemo(() => {
+    if (!pieScenarioId || !assets.length) return null;
+    for (const moduleResults of Object.values(allStressResults || {})) {
+      const result = moduleResults.find(r => r.scenario_id === pieScenarioId);
+      if (result && result.per_asset_breakdown) {
+        const shockBySymbol = {};
+        result.per_asset_breakdown.forEach(row => {
+          shockBySymbol[row.symbol] = row.shock_pct;
+        });
+        return assets.map(a => ({
+          ...a,
+          _stressShockPct: shockBySymbol[a.symbol] ?? 0,
+        }));
+      }
+    }
+    return null;
+  }, [pieScenarioId, allStressResults, assets]);
+
+  // Group all scenarios for the dropdown — module label + flat scenario list
+  const groupedScenarios = useMemo(() => {
+    const moduleLabels = {
+      historical_replay: 'Historical Crisis Replay',
+      market_shock:      'Market Shock',
+      rate_shock:        'Rate Shock',
+      liquidity_shock:   'Liquidity Shock',
+      black_swan_proxy:  'Black Swan Proxy',
+      factor_shock:      'Factor Shock',
+    };
+    return Object.entries(allStressResults)
+      .filter(([_id, results]) => Array.isArray(results) && results.length > 0)
+      .map(([moduleId, results]) => ({
+        moduleId,
+        moduleLabel: moduleLabels[moduleId] || moduleId,
+        scenarios: results,
+      }));
+  }, [allStressResults]);
   // Fetch correlation when assets change (and there are ≥2)
   useEffect(() => {
     if (!assets || assets.length < 2) {
@@ -918,12 +1216,20 @@ export default function PortfolioPage() {
       setStressLoading(true);
       setStressError(null);
       try {
-        const portfolio = assets.map(a => ({
-          symbol: a.symbol,
-          name: a.name,
-          category: a.category,
-          weight: a.weight,
-        }));
+        // Convert raw quantity (stored as `weight` for legacy reasons) into actual
+        // dollar weight % before sending to stress engine. Engine normalizes anyway,
+        // but sending true % gives accurate per-asset contribution attribution.
+        const totalValue = assets.reduce((s, a) => s + (a.entryPrice || 0) * (a.weight || 0), 0);
+        const portfolio = assets.map(a => {
+          const value = (a.entryPrice || 0) * (a.weight || 0);
+          const weightPct = totalValue > 0 ? (value / totalValue) * 100 : 0;
+          return {
+            symbol: a.symbol,
+            name: a.name,
+            category: a.category,
+            weight: weightPct,
+          };
+        });
         const resp = await apiService.applyAllStress(portfolio, selectedStressModule);
         if (!cancelled) {
           if (resp?.success && Array.isArray(resp.results)) {
@@ -942,7 +1248,7 @@ export default function PortfolioPage() {
     return () => { cancelled = true; };
   }, [selectedStressModule, assets]);
 
-  const totalValue = assets.reduce((sum, a) => sum + (a.currentPrice * a.weight), 0);
+  const totalValue = assets.reduce((sum, a) => sum + ((a.entryPrice || 0) * (a.weight || 0)), 0);
   const healthCfg = HEALTH_CONFIG[MOCK_HEALTH.status];
   const HealthIcon = healthCfg.icon;
 
@@ -992,7 +1298,8 @@ export default function PortfolioPage() {
   }, [stressResults]);
 
   const handleCopyAI = () => {
-    navigator.clipboard.writeText(MOCK_AI_COMMENTARY);
+    const text = aiSummary?.summary || MOCK_AI_COMMENTARY;
+    navigator.clipboard.writeText(text);
     setCopiedAI(true);
     setTimeout(() => setCopiedAI(false), 2000);
   };
@@ -1178,6 +1485,10 @@ export default function PortfolioPage() {
         formatPercent={formatPercent}
         onEditAsset={setEditingAsset}
         onDeleteAsset={handleDeleteAsset}
+        stressedAssets={stressedAssetsForPie}
+        pieScenarioId={pieScenarioId}
+        onPieScenarioChange={setPieScenarioId}
+        groupedScenarios={groupedScenarios}
       />
 
       {/* ═══ SECTION 3: STRESS TESTS (live engine) ═══ */}
@@ -1228,12 +1539,17 @@ export default function PortfolioPage() {
               setReverseLoading(true);
               setReverseError(null);
               try {
-                const portfolio = assets.map(a => ({
-                  symbol: a.symbol,
-                  name: a.name,
-                  category: a.category,
-                  weight: a.weight,
-                }));
+                // Convert raw quantity → derived weight % for accurate stress attribution
+                const totalValue = assets.reduce((s, a) => s + (a.entryPrice || 0) * (a.weight || 0), 0);
+                const portfolio = assets.map(a => {
+                  const value = (a.entryPrice || 0) * (a.weight || 0);
+                  return {
+                    symbol: a.symbol,
+                    name: a.name,
+                    category: a.category,
+                    weight: totalValue > 0 ? (value / totalValue) * 100 : 0,
+                  };
+                });
                 const resp = await apiService.runReverseStress(portfolio, reverseThreshold);
                 if (resp?.success) {
                   setReverseResult(resp);
@@ -1509,30 +1825,57 @@ export default function PortfolioPage() {
             </div>
             <div>
               <h2 className="text-lg font-semibold text-foreground">AI Analysis</h2>
-              <p className="text-xs text-muted-foreground">Powered by Safeguard AI</p>
+              <p className="text-xs text-muted-foreground">
+                {aiSummary?.source === 'ai'
+                  ? `Powered by Safeguard AI${aiSummary.cached ? ' · cached' : ''}`
+                  : aiSummary?.source === 'template'
+                    ? 'Rule-based analysis (AI offline)'
+                    : 'Powered by Safeguard AI'}
+              </p>
             </div>
           </div>
           <div className="flex gap-2">
             <button
               onClick={handleCopyAI}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs text-muted-foreground hover:bg-secondary/50 transition-colors"
+              disabled={!aiSummary?.summary && !aiLoading}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs text-muted-foreground hover:bg-secondary/50 transition-colors disabled:opacity-40"
             >
               {copiedAI ? <Check className="h-3.5 w-3.5 text-green-400" /> : <Copy className="h-3.5 w-3.5" />}
               {copiedAI ? 'Copied' : 'Copy'}
             </button>
-            <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs text-muted-foreground hover:bg-secondary/50 transition-colors">
-              <RefreshCw className="h-3.5 w-3.5" />
-              Regenerate
+            <button
+              onClick={() => setAiRefreshTick(t => t + 1)}
+              disabled={aiLoading || !assets.length}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs text-muted-foreground hover:bg-secondary/50 transition-colors disabled:opacity-40"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${aiLoading ? 'animate-spin' : ''}`} />
+              {aiLoading ? 'Generating…' : 'Regenerate'}
             </button>
           </div>
         </div>
 
         <div className="border-l-2 border-purple-500/40 pl-5">
-          {MOCK_AI_COMMENTARY.split('\n\n').map((paragraph, i) => (
-            <p key={i} className="text-sm text-muted-foreground leading-relaxed mb-3 last:mb-0">
-              {paragraph}
+          {!assets.length ? (
+            <p className="text-sm text-muted-foreground italic">
+              Add at least one asset to generate an analysis.
             </p>
-          ))}
+          ) : aiLoading && !aiSummary ? (
+            <p className="text-sm text-muted-foreground italic">
+              Generating analysis from your portfolio composition…
+            </p>
+          ) : aiError && !aiSummary ? (
+            <p className="text-sm text-red-400">{aiError}</p>
+          ) : aiSummary?.summary ? (
+            aiSummary.summary.split('\n\n').map((paragraph, i) => (
+              <p key={i} className="text-sm text-muted-foreground leading-relaxed mb-3 last:mb-0">
+                {paragraph}
+              </p>
+            ))
+          ) : (
+            <p className="text-sm text-muted-foreground italic">
+              Waiting for portfolio data…
+            </p>
+          )}
         </div>
       </motion.div>
     </div>

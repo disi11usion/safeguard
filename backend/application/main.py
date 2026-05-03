@@ -2209,21 +2209,56 @@ async def search_symbols(
         return {"success": False, "error": "POLYGON_API_KEY not configured"}
 
     url = "https://api.polygon.io/v3/reference/tickers"
-    params = {
-        "search": q,
+    common_params = {
         "active": "true",
         "market": market,
-        "limit": limit,
         "apiKey": api_key,
     }
+    # Two parallel calls:
+    #   (a) exact-ticker lookup — guarantees the canonical ticker bubbles up if it exists
+    #   (b) fuzzy search — surfaces related tickers and name matches
+    # Combined and re-ranked locally so exact match wins even when Polygon's fuzzy
+    # search returns it deep in the list (e.g., search "NIO" → bonds first by default).
+    exact_params = {**common_params, "ticker": q.upper(), "limit": 5}
+    fuzzy_params = {**common_params, "search": q, "limit": max(limit * 8, 30)}
     try:
         async with httpx.AsyncClient(timeout=8.0) as client:
-            resp = await client.get(url, params=params)
-            if resp.status_code != 200:
-                return {"success": False, "error": f"Polygon returned {resp.status_code}",
-                        "results": []}
-            payload = resp.json()
-            raw_results = payload.get("results", []) or []
+            resp_exact, resp_fuzzy = await asyncio.gather(
+                client.get(url, params=exact_params),
+                client.get(url, params=fuzzy_params),
+                return_exceptions=True,
+            )
+            raw_combined = []
+            for resp in (resp_exact, resp_fuzzy):
+                if isinstance(resp, Exception):
+                    continue
+                if resp.status_code == 200:
+                    raw_combined.extend(resp.json().get("results") or [])
+            # Dedupe by ticker, preserving first occurrence (exact match comes first)
+            seen = set()
+            deduped = []
+            for r in raw_combined:
+                t = r.get("ticker")
+                if t and t not in seen:
+                    seen.add(t)
+                    deduped.append(r)
+
+            # Local relevance ranking
+            qu = q.upper()
+            def _rank_score(r):
+                t = (r.get("ticker") or "").upper()
+                n = (r.get("name") or "").upper()
+                # Strip Polygon prefix (X:, C:) and USD suffix for crypto pair display
+                base = t.split(":", 1)[-1]
+                if base.endswith("USD") and len(base) > 3:
+                    base = base[:-3]
+                if base == qu or t == qu:        return 0  # exact ticker match
+                if base.startswith(qu) or t.startswith(qu): return 1
+                if qu in base or qu in t:        return 2
+                if n.startswith(qu):             return 3
+                if qu in n:                      return 4
+                return 5
+            deduped.sort(key=lambda r: (_rank_score(r), r.get("ticker") or ""))
             simplified = [
                 {
                     "ticker": r.get("ticker"),
@@ -2232,7 +2267,7 @@ async def search_symbols(
                     "locale": r.get("locale"),
                     "type": r.get("type"),
                 }
-                for r in raw_results
+                for r in deduped[:limit]
             ]
             body = {"success": True, "category": category, "results": simplified}
             _SYMBOL_SEARCH_CACHE[cache_key] = {"ts": time.time(), "data": body}
@@ -2251,7 +2286,10 @@ from application.services import correlation_engine
 # Per-ticker historical close cache: keyed by f"{ticker}::{window_days}"
 # 1-hour TTL — correlations don't shift much in an hour.
 _HISTORY_CACHE: Dict[str, Dict[str, Any]] = {}
-_HISTORY_CACHE_TTL_SEC = 3600
+# 6h cache: correlations don't shift hourly, and Polygon free tier is 5 req/min.
+# Frontend live-price polling already eats 1 req/asset/min; we can't afford
+# correlation re-fetching on the same minute schedule.
+_HISTORY_CACHE_TTL_SEC = 6 * 3600
 
 
 class CorrelationRequest(BaseModel):
@@ -2280,6 +2318,12 @@ async def _fetch_history_with_cache(
     """
     Fetch daily close history with 1-hour cache. Returns list of dicts
     with at minimum {date, close}. Empty list if Polygon returns nothing.
+
+    Cache policy: ONLY cache non-empty successful responses. An empty
+    response usually means transient upstream failure (rate-limit, network
+    blip, or one of N parallel asyncio.gather calls being throttled).
+    Caching empty for 1h would silently drop assets from subsequent
+    correlation matrices. Empty responses are fail-open: next request retries.
     """
     cache_key = f"{ticker}::{window_days}"
     cached = _HISTORY_CACHE.get(cache_key)
@@ -2295,7 +2339,9 @@ async def _fetch_history_with_cache(
         format_for_charts=False,
     )
     series = raw.get(ticker, []) or []
-    _HISTORY_CACHE[cache_key] = {"ts": time.time(), "data": series}
+    # Only cache non-empty data. Empty = likely transient → retry next call.
+    if len(series) >= 3:
+        _HISTORY_CACHE[cache_key] = {"ts": time.time(), "data": series}
     return series
 
 
@@ -2333,12 +2379,20 @@ async def portfolio_correlation(req: CorrelationRequest):
     start_str = start.strftime("%Y-%m-%d")
     end_str = today.strftime("%Y-%m-%d")
 
-    # Fetch each ticker's history (parallel via asyncio.gather)
-    fetch_tasks = [
-        _fetch_history_with_cache(ticker, start_str, end_str, req.window_days)
-        for (_sym, ticker, _cat) in pairs
-    ]
-    histories = await asyncio.gather(*fetch_tasks, return_exceptions=True)
+    # Fetch each ticker's history sequentially — Polygon free tier rate-limits at
+    # 5 req/min, and frontend live-price polling already consumes that budget.
+    # Parallel fetching causes 429 cascades on portfolios with 4+ uncached assets.
+    histories = []
+    for (_sym, ticker, _cat) in pairs:
+        try:
+            hist = await _fetch_history_with_cache(ticker, start_str, end_str, req.window_days)
+            if not hist:
+                # One quick retry after a short pause (covers transient 429 hiccups)
+                await asyncio.sleep(1.5)
+                hist = await _fetch_history_with_cache(ticker, start_str, end_str, req.window_days)
+            histories.append(hist)
+        except Exception as e:
+            histories.append(e)
 
     # Build prices_by_symbol — {user_symbol: [(date, close), ...]}
     prices_by_symbol: Dict[str, list] = {}
@@ -2382,3 +2436,156 @@ async def portfolio_correlation(req: CorrelationRequest):
         "skipped": skipped,
     }, success=result.get("success", False))
     return result
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# AI Portfolio Summary — observational narrative for current portfolio
+# Architecture:
+#   1. Server computes deterministic facts from portfolio + stress + correlation
+#   2. Compose constrained ChatGPT prompt with COMPLIANCE_SYSTEM_PROMPT prepended
+#   3. Output regex scan for forbidden directive language
+#   4. Fallback to rule-based template if LLM fails / fails compliance / cache miss limit
+#   5. SHA256-of-facts cache 24h to keep API cost trivial
+# ─────────────────────────────────────────────────────────────────────────────
+
+from application.services import ai_summary as ai_summary_svc
+
+_AI_SUMMARY_CACHE: Dict[str, Dict[str, Any]] = {}
+_AI_SUMMARY_CACHE_TTL_SEC = 24 * 3600  # 24h
+
+_OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
+_OLLAMA_COMPLIANCE_SYSTEM_PROMPT = (
+    "You are a portfolio risk-analysis assistant. Strict rules:\n"
+    "1. Use ONLY observational, descriptive language describing the user's portfolio facts.\n"
+    "2. NEVER recommend buying, selling, holding, or rebalancing.\n"
+    "3. NEVER use phrases like 'you should', 'consider X', 'rebalance to', 'increase your allocation', 'reduce exposure'.\n"
+    "4. NEVER predict future prices, future volatility, or probabilities.\n"
+    "5. Every numeric figure in your output must come from the supplied facts; do not invent figures.\n"
+    "6. Output plain prose, 3 short paragraphs, no markdown, no bullets, no emojis."
+)
+
+
+async def _try_ollama_summary(user_prompt: str, model: str, timeout: float = 75.0) -> Optional[str]:
+    """Call local Ollama with the constrained prompt; return text or None on failure.
+    keep_alive=15m keeps the model warm between calls so subsequent requests are fast.
+    On CPU-only hosts a fresh generation can exceed timeout — the route then falls back to template."""
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.post(
+                f"{_OLLAMA_BASE_URL}/api/generate",
+                json={
+                    "model": model,
+                    "system": _OLLAMA_COMPLIANCE_SYSTEM_PROMPT,
+                    "prompt": user_prompt,
+                    "stream": False,
+                    "keep_alive": "15m",
+                    "options": {"temperature": 0.4, "num_predict": 220},
+                },
+            )
+            if resp.status_code != 200:
+                logger.warning(f"Ollama HTTP {resp.status_code} (model={model}): {resp.text[:200]}")
+                return None
+            text = (resp.json() or {}).get("response")
+            if text and text.strip():
+                return text.strip()
+            logger.warning(f"Ollama returned empty response (model={model})")
+    except Exception as e:
+        logger.warning(f"Ollama summary call failed (model={model}): {type(e).__name__}: {e}")
+    return None
+
+
+class AISummaryRequest(BaseModel):
+    portfolio: list[StressPortfolioAsset]
+    stress_results: Optional[list[Dict[str, Any]]] = None
+    correlation_data: Optional[Dict[str, Any]] = None
+    force_refresh: bool = False  # bypasses cache
+
+
+@app.post("/api/portfolio/ai-summary", tags=["Portfolio"])
+async def portfolio_ai_summary(req: AISummaryRequest):
+    """
+    Generate an observational, compliance-safe AI narrative summarizing the
+    user's portfolio composition, stress profile, and diversification.
+
+    Cost optimization:
+      - SHA256 hash of (composition + stress buckets) → cache key
+      - 24h cache: same portfolio composition served from memory all day
+      - Fallback to rule-based template on LLM failure → $0 cost
+    """
+    endpoint = "POST /api/portfolio/ai-summary"
+    log_request(logger, endpoint, {
+        "n_assets": len(req.portfolio),
+        "has_stress": req.stress_results is not None,
+        "has_correlation": req.correlation_data is not None,
+        "force": req.force_refresh,
+    })
+
+    # 1. Build deterministic facts
+    portfolio_dicts = [a.model_dump() for a in req.portfolio]
+    facts = ai_summary_svc.build_facts(
+        portfolio_dicts,
+        stress_results=req.stress_results,
+        correlation_data=req.correlation_data,
+    )
+    if not facts.get("holdings"):
+        return {
+            "success": True,
+            "summary": "Add at least one asset to your portfolio to generate an analysis.",
+            "source": "empty",
+            "cached": False,
+        }
+
+    # 2. Cache check
+    fkey = ai_summary_svc.facts_hash(facts)
+    if not req.force_refresh:
+        cached = _AI_SUMMARY_CACHE.get(fkey)
+        if cached and (time.time() - cached["ts"] <= _AI_SUMMARY_CACHE_TTL_SEC):
+            body = {**cached["data"], "cached": True, "facts_hash": fkey}
+            log_response(logger, endpoint, {"source": body.get("source"), "cached": True}, success=True)
+            return body
+
+    # 3. Try ChatGPT (gpt-4o-mini for cost) → Ollama llama3.2:3b → template
+    llm_output: Optional[str] = None
+    prompt = ai_summary_svc.compose_user_prompt(facts)
+    try:
+        resp = await chatgpt_client.chat_with_context(
+            messages=[{"role": "user", "content": prompt}],
+            model="gpt-4o-mini",
+            max_tokens=400,
+            temperature=0.4,
+        )
+        if resp.get("success") and resp.get("content"):
+            llm_output = resp["content"]
+            logger.info(f"ai-summary: ChatGPT OK ({len(llm_output)} chars)")
+        else:
+            logger.warning(f"ai-summary: ChatGPT non-success: {resp.get('error', 'unknown')[:300]}")
+    except Exception as e:
+        log_error(logger, endpoint, e)
+
+    if not llm_output:
+        # Local fallback: llama3.2:3b only. tinyllama produces noisy output that
+        # frequently trips the compliance scrub, so we skip it and let the
+        # rule-based template handle the no-LLM case.
+        llm_output = await _try_ollama_summary(prompt, "llama3.2:3b")
+
+    # 4. Compose final payload (with compliance scrub + template fallback if needed)
+    payload = ai_summary_svc.compose_summary_payload(facts, llm_output)
+    body = {
+        "success": True,
+        "summary": payload["summary"],
+        "source": payload["source"],
+        "compliance_violations": payload["compliance_violations"],
+        "facts_hash": fkey,
+        "facts": {
+            "n_assets": facts.get("n_assets"),
+            "top_holding": facts.get("top_holding"),
+            "category_breakdown": facts.get("category_breakdown"),
+        },
+        "cached": False,
+    }
+    _AI_SUMMARY_CACHE[fkey] = {"ts": time.time(), "data": body}
+    log_response(logger, endpoint, {
+        "source": payload["source"],
+        "violations": len(payload["compliance_violations"]),
+    }, success=True)
+    return body

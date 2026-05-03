@@ -87,3 +87,7 @@ coverage/
 *.swap
 *.tmp
 .tmp/
+
+# Secrets
+.env
+data/.env
