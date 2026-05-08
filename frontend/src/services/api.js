@@ -535,6 +535,23 @@ class ApiService {
     );
   }
 
+  async getPortfolioHealth(portfolio, opts = {}) {
+    const { windowDays = 180, sentimentWindowHours = 24, forceRefresh = false } = opts;
+    return this.makeRequest(
+      '/portfolio/health',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          portfolio,
+          window_days: windowDays,
+          sentiment_window_hours: sentimentWindowHours,
+          force_refresh: forceRefresh,
+        }),
+      },
+      '/api'
+    );
+  }
+
   // ───────────── Portfolio Assets (per-user CRUD) ─────────────
 
   async listPortfolioAssets() {

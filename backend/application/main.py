@@ -2589,3 +2589,181 @@ async def portfolio_ai_summary(req: AISummaryRequest):
         "violations": len(payload["compliance_violations"]),
     }, success=True)
     return body
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Portfolio Health — composite 0-100 score across 5 risk dimensions.
+# Reuses correlation_engine + price-history cache + social sentiment pipeline.
+# Each factor is observational; the composite is descriptive of present state,
+# never advisory.
+# ─────────────────────────────────────────────────────────────────────────────
+
+import hashlib  # noqa: E402  (kept here next to its only consumer)
+
+from application.services import portfolio_health as portfolio_health_svc
+
+_HEALTH_CACHE: Dict[str, Dict[str, Any]] = {}
+_HEALTH_CACHE_TTL_SEC = 15 * 60  # 15 minutes — sentiment/prices move within the day
+
+
+class PortfolioHealthRequest(BaseModel):
+    portfolio: list[StressPortfolioAsset]
+    window_days: int = 180
+    sentiment_window_hours: int = 24
+    force_refresh: bool = False
+
+
+def _health_cache_key(portfolio: list, window_days: int) -> str:
+    """SHA256 over composition only (symbol+category+weight, sorted)."""
+    items = sorted(
+        [
+            (
+                a.symbol if hasattr(a, "symbol") else a.get("symbol"),
+                a.category if hasattr(a, "category") else a.get("category"),
+                round(float(a.weight if hasattr(a, "weight") else a.get("weight", 0) or 0), 2),
+            )
+            for a in portfolio
+        ],
+        key=lambda x: (x[0] or "", x[1] or ""),
+    )
+    blob = json.dumps({"comp": items, "window": window_days}, sort_keys=True).encode("utf-8")
+    return hashlib.sha256(blob).hexdigest()[:32]
+
+
+async def _gather_sentiment_for_health(window_hours: int) -> tuple[Optional[float], int]:
+    """
+    Portfolio-wide social sentiment for the recent window.
+    No Reddit fallback: empty DB → soft-fail the sentiment factor instead of
+    spawning external calls just to compute a health score.
+    Returns (avg_sentiment, n_posts). avg_sentiment may be None.
+    """
+    try:
+        end_dt = datetime.now(timezone.utc)
+        start_dt = end_dt - timedelta(hours=window_hours)
+        posts_df = await asyncio.to_thread(
+            data_request.get_social_posts,
+            start_time=start_dt,
+            end_time=end_dt,
+            limit=100,
+            market=None,
+        )
+        if posts_df is None or posts_df.empty:
+            return None, 0
+        posts = posts_df.to_dict(orient="records")
+        cache_key = ("health", start_dt.isoformat(), end_dt.isoformat(), len(posts))
+        summary = await asyncio.to_thread(
+            social_sentiment_client.summarize_posts, posts, cache_key,
+        )
+        return summary.get("average_sentiment_score"), summary.get("total_posts", len(posts))
+    except Exception as e:
+        logger.warning(f"Health sentiment fetch failed: {type(e).__name__}: {e}")
+        return None, 0
+
+
+@app.post("/api/portfolio/health", tags=["Portfolio"])
+async def portfolio_health(req: PortfolioHealthRequest):
+    """
+    Composite 0-100 health score across 5 observational dimensions of the
+    portfolio: concentration, correlation, macro (class diversification),
+    sentiment skew, and volatility clustering.
+
+    Compliance: every factor describes present-state structure.
+    The score, status, and factor details are observational, never advisory.
+
+    Cost optimization:
+      - 15-minute cache keyed by composition (symbols + categories + weights)
+      - Reuses _fetch_history_with_cache for price data (1h cache, shared with
+        /api/portfolio/correlation)
+      - No Reddit fallback for sentiment: empty DB → soft-fail the factor
+    """
+    endpoint = "POST /api/portfolio/health"
+    log_request(logger, endpoint, {
+        "n_assets": len(req.portfolio),
+        "window_days": req.window_days,
+        "force": req.force_refresh,
+    })
+
+    if not req.portfolio:
+        raise HTTPException(status_code=400, detail="Portfolio is empty.")
+    if req.window_days < 30 or req.window_days > 730:
+        raise HTTPException(status_code=400, detail="window_days must be between 30 and 730.")
+
+    portfolio_dicts = [a.model_dump() for a in req.portfolio]
+
+    # Cache check (composition-only key — weights bucketed to 2 decimals)
+    cache_key = _health_cache_key(req.portfolio, req.window_days)
+    if not req.force_refresh:
+        cached = _HEALTH_CACHE.get(cache_key)
+        if cached and (time.time() - cached["ts"] <= _HEALTH_CACHE_TTL_SEC):
+            body = {**cached["data"], "cached": True}
+            log_response(logger, endpoint, {
+                "cached": True, "score": body.get("score"), "status": body.get("status"),
+            }, success=True)
+            return body
+
+    # Fetch price histories (sequential; mirrors /api/portfolio/correlation
+    # to avoid Polygon free-tier 429 cascades).
+    pairs = _portfolio_ticker_pairs(portfolio_dicts)
+    today = datetime.now(timezone.utc).date()
+    start_str = (today - timedelta(days=req.window_days + 7)).strftime("%Y-%m-%d")
+    end_str = today.strftime("%Y-%m-%d")
+
+    prices_by_symbol: Dict[str, list] = {}
+    closes_by_symbol: Dict[str, list] = {}
+    for (sym, ticker, _cat) in pairs:
+        try:
+            hist = await _fetch_history_with_cache(ticker, start_str, end_str, req.window_days)
+        except Exception:
+            hist = None
+        if not hist:
+            continue
+        try:
+            series = sorted(
+                [(item["date"], float(item["close"])) for item in hist if item.get("close") is not None],
+                key=lambda x: x[0],
+            )
+            if len(series) >= 3:
+                prices_by_symbol[sym] = series
+                closes_by_symbol[sym] = [c for _d, c in series]
+        except Exception:
+            continue
+
+    # Correlation matrix from prices (reuse correlation_engine)
+    correlation_matrix = None
+    correlation_symbols = None
+    if len(prices_by_symbol) >= 2:
+        cor_result = correlation_engine.compute_correlation_matrix(
+            prices_by_symbol, window_days=req.window_days,
+        )
+        if cor_result.get("success"):
+            correlation_matrix = cor_result.get("matrix")
+            correlation_symbols = cor_result.get("symbols")
+
+    avg_sentiment, n_posts = await _gather_sentiment_for_health(req.sentiment_window_hours)
+
+    health = portfolio_health_svc.compute_portfolio_health(
+        holdings=portfolio_dicts,
+        correlation_matrix=correlation_matrix,
+        correlation_symbols=correlation_symbols,
+        avg_sentiment=avg_sentiment,
+        sentiment_n_posts=n_posts,
+        closes_by_symbol=closes_by_symbol,
+    )
+
+    body = {
+        "success": True,
+        "score": health["score"],
+        "status": health["status"],
+        "factors": health["factors"],
+        "computed_at": health["computed_at"],
+        "disclosure_text": health["disclosure_text"],
+        "cached": False,
+    }
+    _HEALTH_CACHE[cache_key] = {"ts": time.time(), "data": body}
+    log_response(logger, endpoint, {
+        "score": body["score"],
+        "status": body["status"],
+        "n_holdings_priced": len(prices_by_symbol),
+        "sentiment_n_posts": n_posts,
+    }, success=True)
+    return body

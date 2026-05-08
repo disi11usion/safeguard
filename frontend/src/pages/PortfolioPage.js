@@ -1136,6 +1136,54 @@ export default function PortfolioPage() {
     aiRefreshTick,
   ]);
 
+  // ── Portfolio Health state ──────────────────────────────────────────
+  // Initial value mirrors MOCK_HEALTH so the UI renders immediately on mount;
+  // the API response replaces it within a few seconds. On API failure we keep
+  // whatever was last set (so the card never empties out mid-session).
+  const [health, setHealth] = useState(MOCK_HEALTH);
+  const [healthLoading, setHealthLoading] = useState(false);
+  const [healthError, setHealthError] = useState(null);
+
+  useEffect(() => {
+    if (!assets.length) return;
+    let cancelled = false;
+    const totalValue = assets.reduce((s, a) => s + (a.entryPrice || 0) * (a.weight || 0), 0);
+    const portfolio = assets.map(a => {
+      const value = (a.entryPrice || 0) * (a.weight || 0);
+      return {
+        symbol: a.symbol,
+        name: a.name,
+        category: a.category,
+        weight: totalValue > 0 ? (value / totalValue) * 100 : 0,
+      };
+    });
+
+    const timer = setTimeout(async () => {
+      setHealthLoading(true);
+      setHealthError(null);
+      try {
+        const resp = await apiService.getPortfolioHealth(portfolio);
+        if (!cancelled) {
+          if (resp?.success && resp.factors) {
+            setHealth({
+              status: resp.status,
+              score: resp.score,
+              factors: resp.factors,
+            });
+          } else {
+            setHealthError('Health score unavailable.');
+          }
+        }
+      } catch (e) {
+        if (!cancelled) setHealthError(e?.message || 'Network error.');
+      } finally {
+        if (!cancelled) setHealthLoading(false);
+      }
+    }, 500);
+    return () => { cancelled = true; clearTimeout(timer); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assets.map(a => `${a.symbol}|${a.category}|${a.weight}|${a.entryPrice}`).join(',')]);
+
   // Build stressedAssets — search across all modules for the picked scenario
   const stressedAssetsForPie = useMemo(() => {
     if (!pieScenarioId || !assets.length) return null;
@@ -1249,7 +1297,7 @@ export default function PortfolioPage() {
   }, [selectedStressModule, assets]);
 
   const totalValue = assets.reduce((sum, a) => sum + ((a.entryPrice || 0) * (a.weight || 0)), 0);
-  const healthCfg = HEALTH_CONFIG[MOCK_HEALTH.status];
+  const healthCfg = HEALTH_CONFIG[health.status] || HEALTH_CONFIG.STRESSED;
   const HealthIcon = healthCfg.icon;
 
   const portfolioStats = useMemo(() => {
@@ -1413,15 +1461,15 @@ export default function PortfolioPage() {
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Portfolio Health</p>
-              <p className={`text-2xl font-bold ${healthCfg.color}`}>{MOCK_HEALTH.status}</p>
+              <p className={`text-2xl font-bold ${healthCfg.color}`}>{health.status}</p>
             </div>
             <div className={`ml-auto text-3xl font-bold ${healthCfg.color}`}>
-              {MOCK_HEALTH.score}
+              {healthLoading ? '…' : health.score}
             </div>
           </div>
 
           <div className="space-y-2.5 mt-5">
-            {Object.entries(MOCK_HEALTH.factors).map(([key, factor]) => {
+            {Object.entries(health.factors).map(([key, factor]) => {
               const fCfg = FACTOR_STATUS[factor.status];
               const FIcon = fCfg.icon;
               return (
