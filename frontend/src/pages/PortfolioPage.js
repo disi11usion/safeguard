@@ -1496,144 +1496,136 @@ export default function PortfolioPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
-          >
-            <Plus className="h-4 w-4" /> Add Asset
-          </button>
           <button className="flex items-center gap-2 px-4 py-2 rounded-lg border border-border text-sm text-muted-foreground hover:bg-secondary/50 transition-colors">
             <Upload className="h-4 w-4" /> CSV
           </button>
         </div>
       </div>
 
-      {/* ═══ SECTION 1a: PORTFOLIO HEALTH HERO — composite gauge + 5 factor rows ═══ */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className={`bg-card border ${healthCfg.border} rounded-2xl p-6 mb-3`}
-      >
-        <div className="flex flex-col sm:flex-row items-start gap-6">
-          {/* Composite score — circular gauge, color tied to status */}
-          <div className={`relative flex-shrink-0 ${healthCfg.color}`}>
-            <svg
-              viewBox="0 0 36 36"
-              width="96"
-              height="96"
-              style={{ transform: 'rotate(-90deg)', display: 'block' }}
-            >
-              <circle cx="18" cy="18" r="15.915" fill="none" stroke="currentColor" strokeOpacity={0.2} strokeWidth="2.5" />
-              <circle
-                cx="18" cy="18" r="15.915"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeDasharray={`${typeof health.score === 'number' ? health.score : 0} 100`}
-                strokeLinecap="round"
-              />
-            </svg>
-            <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <span className="text-2xl font-bold tabular-nums leading-none">
-                {healthLoading ? '…' : (health.score ?? '—')}
-              </span>
-              <span className="text-[10px] uppercase tracking-wider text-muted-foreground mt-0.5">/ 100</span>
-            </div>
-          </div>
-
-          {/* Status header + 5 factor rows */}
-          <div className="flex-1 min-w-0 w-full">
-            <div className="flex items-start justify-between gap-4 mb-4">
-              <div>
-                <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Portfolio Health</p>
-                <p className={`text-xl font-semibold mt-0.5 ${healthCfg.color}`}>{health.status}</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Composite of 5 risk dimensions · score &lt; 80 = elevated
-                </p>
-              </div>
-              <button
-                onClick={() => openDrawer('health')}
-                className="text-xs text-muted-foreground hover:text-foreground flex-shrink-0"
-              >
-                How calculated ›
-              </button>
-            </div>
-
-            <div className="space-y-2.5">
-              {Object.entries(health.factors).map(([key, factor]) => {
-                const fCfg = FACTOR_STATUS[factor.status] || FACTOR_STATUS.warning;
-                const FIcon = fCfg.icon;
-                const anchor = key === 'correlation' ? 'correlation' : 'health';
-                return (
-                  <div key={key} className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-                    <FIcon className={`h-4 w-4 flex-shrink-0 ${fCfg.color}`} />
-                    <span className="text-foreground font-medium flex-shrink-0 w-32">{factor.label}</span>
-                    <span className="text-xs text-muted-foreground flex-1 min-w-[180px]">{factor.detail}</span>
-                    <button
-                      onClick={() => openDrawer(anchor)}
-                      className="text-xs text-muted-foreground hover:text-foreground flex-shrink-0"
-                    >
-                      methodology ›
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      </motion.div>
-
-      {/* ═══ SECTION 1b: RISK SUMMARY STRIP — quantitative drill-down ═══ */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-8">
-        <div className="rounded-2xl border border-border bg-card p-4">
-          <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Total value</p>
-          <p className="text-2xl font-semibold tabular-nums mt-1">{formatCurrency(totalValue)}</p>
-          <p className="text-xs text-green-400 mt-1 flex items-center gap-1">
-            <TrendingUp className="h-3.5 w-3.5" /> +3.2% · 24h
-          </p>
-        </div>
-
-        <div className="rounded-2xl border border-border bg-card p-4">
-          <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Worst-case scenario</p>
-          {worstCaseScenario ? (
-            <>
-              <p className="text-2xl font-semibold tabular-nums text-red-400 mt-1">
-                {formatPercent(worstCaseScenario.portfolio_drawdown_pct)}
-              </p>
-              <p className="text-xs text-muted-foreground mt-1 truncate" title={worstCaseScenario.scenario_name}>
-                {worstCaseScenario.scenario_name || 'modeled drawdown'}
-              </p>
-            </>
-          ) : (
-            <>
-              <p className="text-2xl font-semibold tabular-nums text-muted-foreground mt-1">—</p>
-              <p className="text-xs text-muted-foreground mt-1">Stress results loading…</p>
-            </>
-          )}
-        </div>
-
-        <div className="rounded-2xl border border-border bg-card p-4">
-          <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Diversification</p>
-          {diversificationScore ? (
-            <>
-              <p className="text-2xl font-semibold tabular-nums mt-1">{diversificationScore.value.toFixed(2)}</p>
-              <p className="text-xs text-muted-foreground mt-1">{diversificationScore.label} · 1 − mean |ρ|</p>
-            </>
-          ) : (
-            <>
-              <p className="text-2xl font-semibold tabular-nums text-muted-foreground mt-1">—</p>
-              <p className="text-xs text-muted-foreground mt-1">Need ≥2 priced holdings</p>
-            </>
-          )}
-        </div>
-
-        <button
-          onClick={() => openDrawer('overview')}
-          className="rounded-2xl border border-border bg-card hover:bg-secondary/50 p-4 text-left transition-colors flex flex-col justify-center items-start gap-1"
+      {/* ═══ SECTION 1: HEALTH HERO (left, half-width) + RISK SUMMARY STACK (right) ═══ */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-8">
+        {/* Left: compact Portfolio Health hero */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className={`bg-card border ${healthCfg.border} rounded-2xl p-5 h-full`}
         >
-          <span className="text-[11px] uppercase tracking-wider text-muted-foreground">Transparency</span>
-          <span className="text-sm text-foreground/90">How this is calculated ›</span>
-        </button>
+          <div className="flex flex-col sm:flex-row items-start gap-4">
+            <div className={`relative flex-shrink-0 ${healthCfg.color}`}>
+              <svg
+                viewBox="0 0 36 36"
+                width="76"
+                height="76"
+                style={{ transform: 'rotate(-90deg)', display: 'block' }}
+              >
+                <circle cx="18" cy="18" r="15.915" fill="none" stroke="currentColor" strokeOpacity={0.2} strokeWidth="2.5" />
+                <circle
+                  cx="18" cy="18" r="15.915"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  strokeDasharray={`${typeof health.score === 'number' ? health.score : 0} 100`}
+                  strokeLinecap="round"
+                />
+              </svg>
+              <div className="absolute inset-0 flex flex-col items-center justify-center">
+                <span className="text-xl font-bold tabular-nums leading-none">
+                  {healthLoading ? '…' : (health.score ?? '—')}
+                </span>
+                <span className="text-[9px] uppercase tracking-wider text-muted-foreground mt-0.5">/ 100</span>
+              </div>
+            </div>
+
+            <div className="flex-1 min-w-0 w-full">
+              <div className="flex items-start justify-between gap-3 mb-3">
+                <div>
+                  <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Portfolio Health</p>
+                  <p className={`text-lg font-semibold mt-0.5 ${healthCfg.color}`}>{health.status}</p>
+                </div>
+                <button
+                  onClick={() => openDrawer('health')}
+                  className="text-[11px] text-muted-foreground hover:text-foreground flex-shrink-0"
+                >
+                  How calculated ›
+                </button>
+              </div>
+
+              <div className="space-y-2">
+                {Object.entries(health.factors).map(([key, factor]) => {
+                  const fCfg = FACTOR_STATUS[factor.status] || FACTOR_STATUS.warning;
+                  const FIcon = fCfg.icon;
+                  const anchor = key === 'correlation' ? 'correlation' : 'health';
+                  return (
+                    <div key={key} className="flex items-center gap-2 text-xs">
+                      <FIcon className={`h-3.5 w-3.5 flex-shrink-0 ${fCfg.color}`} />
+                      <span className="text-foreground font-medium flex-shrink-0 w-28 truncate" title={factor.label}>{factor.label}</span>
+                      <span className="text-[11px] text-muted-foreground flex-1 min-w-0 truncate" title={factor.detail}>{factor.detail}</span>
+                      <button
+                        onClick={() => openDrawer(anchor)}
+                        className="text-[11px] text-muted-foreground hover:text-foreground flex-shrink-0"
+                      >
+                        methodology ›
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </motion.div>
+
+        {/* Right: 4 summary cards stacked */}
+        <div className="grid grid-cols-1 gap-3">
+          <div className="rounded-2xl border border-border bg-card p-4">
+            <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Total value</p>
+            <p className="text-2xl font-semibold tabular-nums mt-1">{formatCurrency(totalValue)}</p>
+            <p className="text-xs text-green-400 mt-1 flex items-center gap-1">
+              <TrendingUp className="h-3.5 w-3.5" /> +3.2% · 24h
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-border bg-card p-4">
+            <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Worst-case scenario</p>
+            {worstCaseScenario ? (
+              <>
+                <p className="text-2xl font-semibold tabular-nums text-red-400 mt-1">
+                  {formatPercent(worstCaseScenario.portfolio_drawdown_pct)}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1 truncate" title={worstCaseScenario.scenario_name}>
+                  {worstCaseScenario.scenario_name || 'modeled drawdown'}
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-2xl font-semibold tabular-nums text-muted-foreground mt-1">—</p>
+                <p className="text-xs text-muted-foreground mt-1">Stress results loading…</p>
+              </>
+            )}
+          </div>
+
+          <div className="rounded-2xl border border-border bg-card p-4">
+            <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Diversification</p>
+            {diversificationScore ? (
+              <>
+                <p className="text-2xl font-semibold tabular-nums mt-1">{diversificationScore.value.toFixed(2)}</p>
+                <p className="text-xs text-muted-foreground mt-1">{diversificationScore.label} · 1 − mean |ρ|</p>
+              </>
+            ) : (
+              <>
+                <p className="text-2xl font-semibold tabular-nums text-muted-foreground mt-1">—</p>
+                <p className="text-xs text-muted-foreground mt-1">Need ≥2 priced holdings</p>
+              </>
+            )}
+          </div>
+
+          <button
+            onClick={() => openDrawer('overview')}
+            className="rounded-2xl border border-border bg-card hover:bg-secondary/50 p-4 text-left transition-colors flex flex-col justify-center items-start gap-1"
+          >
+            <span className="text-[11px] uppercase tracking-wider text-muted-foreground">Transparency</span>
+            <span className="text-sm text-foreground/90">How this is calculated ›</span>
+          </button>
+        </div>
       </div>
 
       {/* ═══ SECTION 2: AI OBSERVATIONS — TL;DR position per redesign mock ═══ */}
@@ -1767,18 +1759,21 @@ export default function PortfolioPage() {
           let cumulative = 0;
           const slices = assets.map((a, i) => {
             const pct = (a.weight || 0) / totalWeight * 100;
-            const seg = { ...a, pct, color: sliceColors[i % sliceColors.length], offset: -cumulative };
+            const value = (a.currentPrice || 0) * (a.weight || 0);
+            const seg = { ...a, pct, value, color: sliceColors[i % sliceColors.length], offset: -cumulative };
             cumulative += pct;
             return seg;
           });
+          const sortedByValue = [...slices].sort((a, b) => b.value - a.value);
+          const maxAssetValue = Math.max(1, ...sortedByValue.map(s => s.value));
 
           return (
-            <div className={chartView === 'list' ? '' : 'grid grid-cols-1 lg:grid-cols-[1fr_2fr] gap-4'}>
+            <div className={chartView === 'list' ? '' : 'grid grid-cols-1 lg:grid-cols-[1fr_1fr_2fr] gap-4'}>
               {chartView !== 'list' && (
                 <div className="rounded-2xl border border-border bg-card p-5">
-                  <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-3">Current allocation</div>
+                  <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-3">Allocation</div>
                   <div className="flex items-center justify-center mb-4">
-                    <svg viewBox="0 0 42 42" width="180" height="180">
+                    <svg viewBox="0 0 42 42" width="150" height="150">
                       <circle cx="21" cy="21" r="15.915" fill="transparent" stroke="hsl(220 8% 24%)" strokeWidth="6" />
                       {slices.map(s => (
                         <circle
@@ -1796,16 +1791,33 @@ export default function PortfolioPage() {
                         {formatCurrency(totalValue)}
                       </text>
                       <text x="21" y="24" textAnchor="middle" fontSize="2.2" fill="currentColor" className="text-muted-foreground">
-                        Total value
+                        Total
                       </text>
                     </svg>
                   </div>
-                  <div className="grid grid-cols-2 gap-y-1.5 text-xs">
+                  <div className="grid grid-cols-2 gap-y-1 text-[11px]">
                     {slices.map(s => (
-                      <div key={s.symbol} className="flex items-center gap-1.5">
+                      <div key={s.symbol} className="flex items-center gap-1.5 min-w-0">
                         <span className="w-2 h-2 rounded-sm flex-shrink-0" style={{ background: s.color }} />
                         <span className="truncate">{s.symbol}</span>
                         <span className="tabular-nums text-muted-foreground ml-auto">{Math.round(s.pct)}%</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {chartView !== 'list' && (
+                <div className="rounded-2xl border border-border bg-card p-5">
+                  <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-3">By holdings value</div>
+                  <div className="space-y-2">
+                    {sortedByValue.map(s => (
+                      <div key={s.symbol} className="grid grid-cols-[36px_1fr_60px] items-center gap-2 text-xs">
+                        <span className="font-medium truncate">{s.symbol}</span>
+                        <div className="h-3 rounded-sm" style={{ width: `${(s.value / maxAssetValue) * 100}%`, background: s.color, minWidth: 4 }} />
+                        <span className="text-right tabular-nums text-muted-foreground">
+                          {s.value >= 1000 ? `$${(s.value / 1000).toFixed(0)}k` : formatCurrency(s.value)}
+                        </span>
                       </div>
                     ))}
                   </div>
