@@ -193,8 +193,18 @@ export default function PortfolioAssetsSection({
       transition={{ delay: 0.2 }}
       className="bg-card border border-border rounded-2xl p-6 mb-8"
     >
-      <div className="flex items-center justify-between mb-5">
-        <h2 className="text-lg font-semibold text-foreground">Your Assets</h2>
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center">
+            <PieChart className="h-[18px] w-[18px] text-primary" />
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold text-foreground">Your Assets</h2>
+            <p className="text-xs text-muted-foreground">
+              {assets?.length || 0} {(assets?.length || 0) === 1 ? 'holding' : 'holdings'} · cost-basis weights · prices auto-refresh every 60s
+            </p>
+          </div>
+        </div>
         <div className="flex bg-background rounded-lg p-1">
           {[
             { key: 'pie', icon: PieChart, label: 'Pie Chart' },

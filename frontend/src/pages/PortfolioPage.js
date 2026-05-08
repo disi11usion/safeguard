@@ -4,7 +4,7 @@ import {
   Shield, Plus, Upload, TrendingUp,
   AlertTriangle, Activity, Brain, ChevronDown, ChevronUp,
   RefreshCw, Copy, Check, Zap, Target,
-  X, Search, Info
+  X, Search, Info, PieChart, List
 } from 'lucide-react';
 import PortfolioAssetsSection from '../components/PortfolioAssetsSection';
 import { apiService } from '../services/api';
@@ -1221,6 +1221,39 @@ export default function PortfolioPage() {
         scenarios: results,
       }));
   }, [allStressResults]);
+
+  // ── Redesign: methodology drawer + page-level derived metrics ────────
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerSection, setDrawerSection] = useState('overview');
+  const openDrawer = (section = 'overview') => {
+    setDrawerSection(section);
+    setDrawerOpen(true);
+  };
+
+  // Worst-case modeled drawdown across every scenario in every module.
+  // Drives the "Worst-case" tile in the Risk Summary strip.
+  const worstCaseScenario = useMemo(() => {
+    const all = Object.values(allStressResults || {}).flat();
+    if (!all.length) return null;
+    return all.reduce(
+      (min, r) => ((r.portfolio_drawdown_pct ?? 0) < (min?.portfolio_drawdown_pct ?? 0) ? r : min),
+      all[0],
+    );
+  }, [allStressResults]);
+
+  // Diversification readout for the Risk Summary strip — pulled off the
+  // health response so we don't double-fetch correlation. 1 - mean|ρ|, where
+  // 1.0 = fully independent, 0 = perfectly correlated.
+  const diversificationScore = useMemo(() => {
+    const meanAbs = health?.factors?.correlation?.raw?.mean_abs_corr;
+    if (typeof meanAbs !== 'number') return null;
+    const v = 1 - meanAbs;
+    let label = 'Moderate';
+    if (v >= 0.65) label = 'Strong';
+    else if (v < 0.35) label = 'Weak';
+    return { value: v, label };
+  }, [health]);
+
   // Fetch correlation when assets change (and there are ≥2)
   useEffect(() => {
     if (!assets || assets.length < 2) {
@@ -1436,126 +1469,448 @@ export default function PortfolioPage() {
         mode="edit"
       />
 
-      {/* ═══ PAGE HEADER ═══ */}
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-foreground flex items-center gap-3">
-          <Shield className="h-8 w-8 text-primary" />
-          Portfolio Risk & Scenario Intelligence
-        </h1>
-        <p className="text-muted-foreground mt-2">
-          Not portfolio tracking — Portfolio Risk & Scenario Intelligence.
-        </p>
+      {/* ═══ RISK RIBBON — sticky compliance reminder + methodology gateway ═══ */}
+      <div className="sticky top-0 z-30 mb-6 border-b border-border bg-background/85 backdrop-blur">
+        <div className="py-2 flex items-center justify-between text-xs text-muted-foreground">
+          <span>
+            <span className="text-foreground/90">Analytical observations only.</span> Not investment advice.
+          </span>
+          <button
+            onClick={() => openDrawer('overview')}
+            className="text-foreground/90 hover:text-foreground underline-offset-4 hover:underline"
+          >
+            Methodology ›
+          </button>
+        </div>
       </div>
 
-      {/* ═══ SECTION 1: HEALTH + OVERVIEW ═══ */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-        {/* Portfolio Health Card */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className={`bg-card border ${healthCfg.border} rounded-2xl p-6`}
+      {/* ═══ PAGE HEADER ═══ */}
+      <div className="mb-8 flex items-end justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-3xl font-bold text-foreground flex items-center gap-3">
+            <Shield className="h-8 w-8 text-primary" />
+            Portfolio Risk &amp; Scenario Intelligence
+          </h1>
+          <p className="text-sm text-muted-foreground mt-2">
+            {assets.length} {assets.length === 1 ? 'holding' : 'holdings'} · refreshed live
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+          >
+            <Plus className="h-4 w-4" /> Add Asset
+          </button>
+          <button className="flex items-center gap-2 px-4 py-2 rounded-lg border border-border text-sm text-muted-foreground hover:bg-secondary/50 transition-colors">
+            <Upload className="h-4 w-4" /> CSV
+          </button>
+        </div>
+      </div>
+
+      {/* ═══ SECTION 1a: PORTFOLIO HEALTH HERO — composite gauge + 5 factor rows ═══ */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className={`bg-card border ${healthCfg.border} rounded-2xl p-6 mb-3`}
+      >
+        <div className="flex flex-col sm:flex-row items-start gap-6">
+          {/* Composite score — circular gauge, color tied to status */}
+          <div className={`relative flex-shrink-0 ${healthCfg.color}`}>
+            <svg
+              viewBox="0 0 36 36"
+              width="96"
+              height="96"
+              style={{ transform: 'rotate(-90deg)', display: 'block' }}
+            >
+              <circle cx="18" cy="18" r="15.915" fill="none" stroke="currentColor" strokeOpacity={0.2} strokeWidth="2.5" />
+              <circle
+                cx="18" cy="18" r="15.915"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeDasharray={`${typeof health.score === 'number' ? health.score : 0} 100`}
+                strokeLinecap="round"
+              />
+            </svg>
+            <div className="absolute inset-0 flex flex-col items-center justify-center">
+              <span className="text-2xl font-bold tabular-nums leading-none">
+                {healthLoading ? '…' : (health.score ?? '—')}
+              </span>
+              <span className="text-[10px] uppercase tracking-wider text-muted-foreground mt-0.5">/ 100</span>
+            </div>
+          </div>
+
+          {/* Status header + 5 factor rows */}
+          <div className="flex-1 min-w-0 w-full">
+            <div className="flex items-start justify-between gap-4 mb-4">
+              <div>
+                <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Portfolio Health</p>
+                <p className={`text-xl font-semibold mt-0.5 ${healthCfg.color}`}>{health.status}</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Composite of 5 risk dimensions · score &lt; 80 = elevated
+                </p>
+              </div>
+              <button
+                onClick={() => openDrawer('health')}
+                className="text-xs text-muted-foreground hover:text-foreground flex-shrink-0"
+              >
+                How calculated ›
+              </button>
+            </div>
+
+            <div className="space-y-2.5">
+              {Object.entries(health.factors).map(([key, factor]) => {
+                const fCfg = FACTOR_STATUS[factor.status] || FACTOR_STATUS.warning;
+                const FIcon = fCfg.icon;
+                const anchor = key === 'correlation' ? 'correlation' : 'health';
+                return (
+                  <div key={key} className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                    <FIcon className={`h-4 w-4 flex-shrink-0 ${fCfg.color}`} />
+                    <span className="text-foreground font-medium flex-shrink-0 w-32">{factor.label}</span>
+                    <span className="text-xs text-muted-foreground flex-1 min-w-[180px]">{factor.detail}</span>
+                    <button
+                      onClick={() => openDrawer(anchor)}
+                      className="text-xs text-muted-foreground hover:text-foreground flex-shrink-0"
+                    >
+                      methodology ›
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </motion.div>
+
+      {/* ═══ SECTION 1b: RISK SUMMARY STRIP — quantitative drill-down ═══ */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-8">
+        <div className="rounded-2xl border border-border bg-card p-4">
+          <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Total value</p>
+          <p className="text-2xl font-semibold tabular-nums mt-1">{formatCurrency(totalValue)}</p>
+          <p className="text-xs text-green-400 mt-1 flex items-center gap-1">
+            <TrendingUp className="h-3.5 w-3.5" /> +3.2% · 24h
+          </p>
+        </div>
+
+        <div className="rounded-2xl border border-border bg-card p-4">
+          <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Worst-case scenario</p>
+          {worstCaseScenario ? (
+            <>
+              <p className="text-2xl font-semibold tabular-nums text-red-400 mt-1">
+                {formatPercent(worstCaseScenario.portfolio_drawdown_pct)}
+              </p>
+              <p className="text-xs text-muted-foreground mt-1 truncate" title={worstCaseScenario.scenario_name}>
+                {worstCaseScenario.scenario_name || 'modeled drawdown'}
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-2xl font-semibold tabular-nums text-muted-foreground mt-1">—</p>
+              <p className="text-xs text-muted-foreground mt-1">Stress results loading…</p>
+            </>
+          )}
+        </div>
+
+        <div className="rounded-2xl border border-border bg-card p-4">
+          <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Diversification</p>
+          {diversificationScore ? (
+            <>
+              <p className="text-2xl font-semibold tabular-nums mt-1">{diversificationScore.value.toFixed(2)}</p>
+              <p className="text-xs text-muted-foreground mt-1">{diversificationScore.label} · 1 − mean |ρ|</p>
+            </>
+          ) : (
+            <>
+              <p className="text-2xl font-semibold tabular-nums text-muted-foreground mt-1">—</p>
+              <p className="text-xs text-muted-foreground mt-1">Need ≥2 priced holdings</p>
+            </>
+          )}
+        </div>
+
+        <button
+          onClick={() => openDrawer('overview')}
+          className="rounded-2xl border border-border bg-card hover:bg-secondary/50 p-4 text-left transition-colors flex flex-col justify-center items-start gap-1"
         >
-          <div className="flex items-center gap-3 mb-4">
-            <div className={`p-3 rounded-xl ${healthCfg.bg}`}>
-              <HealthIcon className={`h-8 w-8 ${healthCfg.color}`} />
+          <span className="text-[11px] uppercase tracking-wider text-muted-foreground">Transparency</span>
+          <span className="text-sm text-foreground/90">How this is calculated ›</span>
+        </button>
+      </div>
+
+      {/* ═══ SECTION 2: AI OBSERVATIONS — TL;DR position per redesign mock ═══ */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.2 }}
+        className="bg-card border border-border rounded-2xl p-6 mb-8"
+      >
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-purple-500/10 flex items-center justify-center">
+              <Brain className="h-[18px] w-[18px] text-purple-400" />
             </div>
             <div>
-              <p className="text-sm text-muted-foreground">Portfolio Health</p>
-              <p className={`text-2xl font-bold ${healthCfg.color}`}>{health.status}</p>
-            </div>
-            <div className={`ml-auto text-3xl font-bold ${healthCfg.color}`}>
-              {healthLoading ? '…' : health.score}
-            </div>
-          </div>
-
-          <div className="space-y-2.5 mt-5">
-            {Object.entries(health.factors).map(([key, factor]) => {
-              const fCfg = FACTOR_STATUS[factor.status];
-              const FIcon = fCfg.icon;
-              return (
-                <div key={key} className="flex items-center gap-3 text-sm">
-                  <FIcon className={`h-4 w-4 flex-shrink-0 ${fCfg.color}`} />
-                  <span className="text-foreground font-medium flex-1">{factor.label}</span>
-                  <span className="text-xs text-muted-foreground max-w-[200px] text-right">{factor.detail}</span>
-                </div>
-              );
-            })}
-          </div>
-        </motion.div>
-
-        {/* Portfolio Value + Actions */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-          className="bg-card border border-border rounded-2xl p-6"
-        >
-          <p className="text-sm text-muted-foreground mb-1">Total Portfolio Value</p>
-          <p className="text-4xl font-bold text-foreground mb-1">{formatCurrency(totalValue)}</p>
-          <p className="text-sm text-green-400 flex items-center gap-1 mb-6">
-            <TrendingUp className="h-4 w-4" /> +3.2% (24h)
-          </p>
-
-          <div className="grid grid-cols-2 gap-3 mb-6">
-            <div className="bg-background rounded-xl p-3 text-center">
-              <p className="text-xs text-muted-foreground">Assets</p>
-              <p className="text-xl font-bold text-foreground">{assets.length}</p>
-            </div>
-            <div className="bg-background rounded-xl p-3 text-center">
-              <p className="text-xs text-muted-foreground">Categories</p>
-              <p className="text-xl font-bold text-foreground">
-                {new Set(assets.map(a => a.category)).size}
+              <h2 className="text-lg font-semibold text-foreground">AI Observations</h2>
+              <p className="text-xs text-muted-foreground">
+                {aiSummary?.source === 'ai'
+                  ? `Powered by Safeguard AI${aiSummary.cached ? ' · cached' : ''}`
+                  : aiSummary?.source === 'template'
+                    ? 'Rule-based analysis (AI offline)'
+                    : 'Powered by Safeguard AI'}
               </p>
             </div>
           </div>
-
-          <div className="flex gap-3">
+          <div className="flex gap-2">
             <button
-              onClick={() => setShowAddModal(true)}
-              className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+              onClick={handleCopyAI}
+              disabled={!aiSummary?.summary && !aiLoading}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs text-muted-foreground hover:bg-secondary/50 transition-colors disabled:opacity-40"
             >
-              <Plus className="h-4 w-4" /> Add Asset
+              {copiedAI ? <Check className="h-3.5 w-3.5 text-green-400" /> : <Copy className="h-3.5 w-3.5" />}
+              {copiedAI ? 'Copied' : 'Copy'}
             </button>
-            <button className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-border text-sm text-muted-foreground hover:bg-secondary/50 transition-colors">
-              <Upload className="h-4 w-4" /> CSV
+            <button
+              onClick={() => setAiRefreshTick(t => t + 1)}
+              disabled={aiLoading || !assets.length}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs text-muted-foreground hover:bg-secondary/50 transition-colors disabled:opacity-40"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${aiLoading ? 'animate-spin' : ''}`} />
+              {aiLoading ? 'Generating…' : 'Regenerate'}
             </button>
           </div>
-        </motion.div>
-      </div>
+        </div>
 
-      <PortfolioAssetsSection
-        assets={assets}
-        chartView={chartView}
-        onChartViewChange={setChartView}
-        totalValue={totalValue}
-        portfolioStats={portfolioStats}
-        formatCurrency={formatCurrency}
-        formatPercent={formatPercent}
-        onEditAsset={setEditingAsset}
-        onDeleteAsset={handleDeleteAsset}
-        stressedAssets={stressedAssetsForPie}
-        pieScenarioId={pieScenarioId}
-        onPieScenarioChange={setPieScenarioId}
-        groupedScenarios={groupedScenarios}
-      />
+        <div className="border-l-2 border-purple-500/40 pl-5 space-y-3">
+          {!assets.length ? (
+            <p className="text-sm text-muted-foreground italic">
+              Add at least one asset to generate an analysis.
+            </p>
+          ) : aiLoading && !aiSummary ? (
+            <p className="text-sm text-muted-foreground italic">
+              Generating analysis from your portfolio composition…
+            </p>
+          ) : aiError && !aiSummary ? (
+            <p className="text-sm text-red-400">{aiError}</p>
+          ) : aiSummary?.summary ? (
+            aiSummary.summary.split('\n\n').map((paragraph, i) => (
+              <p key={i} className="text-sm text-foreground/85 leading-relaxed">
+                {paragraph}
+              </p>
+            ))
+          ) : (
+            <p className="text-sm text-muted-foreground italic">
+              Waiting for portfolio data…
+            </p>
+          )}
+        </div>
 
-      {/* ═══ SECTION 3: STRESS TESTS (live engine) ═══ */}
+        <p className="text-[11px] text-muted-foreground mt-5">
+          Generated from your portfolio composition. Observational only — never advisory.
+        </p>
+      </motion.div>
+
+      {/* ═══ SECTION 3: YOUR ASSETS — pie + table per mock ═══ */}
+      <motion.section
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.25 }}
+        className="mb-8"
+      >
+        <header className="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center">
+              <PieChart className="h-[18px] w-[18px] text-primary" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-foreground">Your Assets</h2>
+              <p className="text-xs text-muted-foreground">
+                {assets.length} {assets.length === 1 ? 'holding' : 'holdings'} · cost-basis weights · prices auto-refresh every 60s
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="flex gap-1 p-0.5 rounded-lg border border-border bg-card">
+              <button
+                onClick={() => setChartView('pie')}
+                aria-selected={chartView === 'pie'}
+                className={`px-3 py-1.5 text-xs rounded-md transition-colors ${
+                  chartView === 'pie' ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <span className="inline-flex items-center gap-1.5">
+                  <PieChart className="h-3 w-3" /> Pie
+                </span>
+              </button>
+              <button
+                onClick={() => setChartView('list')}
+                aria-selected={chartView === 'list'}
+                className={`px-3 py-1.5 text-xs rounded-md transition-colors ${
+                  chartView === 'list' ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <span className="inline-flex items-center gap-1.5">
+                  <List className="h-3 w-3" /> List
+                </span>
+              </button>
+            </div>
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="rounded-lg bg-primary text-primary-foreground px-3 py-2 text-xs font-medium hover:bg-primary/90 transition-colors flex items-center gap-1.5"
+            >
+              <Plus className="h-3.5 w-3.5" /> Add asset
+            </button>
+          </div>
+        </header>
+
+        {(() => {
+          const totalWeight = assets.reduce((s, a) => s + (a.weight || 0), 0) || 1;
+          const sliceColors = ['#f59e0b', '#3b82f6', '#10b981', '#8b5cf6', '#ef4444', '#06b6d4', '#ec4899'];
+          let cumulative = 0;
+          const slices = assets.map((a, i) => {
+            const pct = (a.weight || 0) / totalWeight * 100;
+            const seg = { ...a, pct, color: sliceColors[i % sliceColors.length], offset: -cumulative };
+            cumulative += pct;
+            return seg;
+          });
+
+          return (
+            <div className={chartView === 'list' ? '' : 'grid grid-cols-1 lg:grid-cols-[1fr_2fr] gap-4'}>
+              {chartView !== 'list' && (
+                <div className="rounded-2xl border border-border bg-card p-5">
+                  <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-3">Current allocation</div>
+                  <div className="flex items-center justify-center mb-4">
+                    <svg viewBox="0 0 42 42" width="180" height="180">
+                      <circle cx="21" cy="21" r="15.915" fill="transparent" stroke="hsl(220 8% 24%)" strokeWidth="6" />
+                      {slices.map(s => (
+                        <circle
+                          key={s.symbol}
+                          cx="21" cy="21" r="15.915"
+                          fill="transparent"
+                          stroke={s.color}
+                          strokeWidth="6"
+                          strokeDasharray={`${s.pct} ${100 - s.pct}`}
+                          strokeDashoffset={s.offset}
+                          transform="rotate(-90 21 21)"
+                        />
+                      ))}
+                      <text x="21" y="20" textAnchor="middle" fontSize="3.6" fill="currentColor" className="text-foreground" fontWeight="600">
+                        {formatCurrency(totalValue)}
+                      </text>
+                      <text x="21" y="24" textAnchor="middle" fontSize="2.2" fill="currentColor" className="text-muted-foreground">
+                        Total value
+                      </text>
+                    </svg>
+                  </div>
+                  <div className="grid grid-cols-2 gap-y-1.5 text-xs">
+                    {slices.map(s => (
+                      <div key={s.symbol} className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-sm flex-shrink-0" style={{ background: s.color }} />
+                        <span className="truncate">{s.symbol}</span>
+                        <span className="tabular-nums text-muted-foreground ml-auto">{Math.round(s.pct)}%</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="rounded-2xl border border-border bg-card overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-[11px] uppercase tracking-wider text-muted-foreground text-left">
+                      <th className="font-normal px-5 py-3">Asset</th>
+                      <th className="font-normal py-3 text-right">Quantity</th>
+                      <th className="font-normal py-3 text-right">Entry</th>
+                      <th className="font-normal py-3 text-right">Current</th>
+                      <th className="font-normal py-3 text-right">Holdings</th>
+                      <th className="font-normal py-3 text-right">P/L</th>
+                      <th className="font-normal py-3 pr-5 text-right">Risk</th>
+                      <th className="font-normal py-3 pr-5 text-right" />
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {assets.map(a => {
+                      const value = (a.currentPrice || 0) * (a.weight || 0);
+                      const plPct = a.entryPrice > 0
+                        ? ((a.currentPrice - a.entryPrice) / a.entryPrice) * 100
+                        : 0;
+                      const riskClass = a.risk === 'HIGH'
+                        ? 'bg-red-500/15 text-red-400'
+                        : a.risk === 'LOW'
+                          ? 'bg-green-500/15 text-green-400'
+                          : 'bg-orange-400/15 text-orange-400';
+                      const icon = a.category === 'crypto' ? '₿'
+                        : a.category === 'futures' ? '🥇'
+                        : a.category === 'forex' ? '💱'
+                        : '📈';
+                      return (
+                        <tr key={a.id || a.symbol} className="hover:bg-secondary/30 transition-colors">
+                          <td className="px-5 py-3">
+                            <div className="flex items-center gap-2">
+                              <span className="text-base">{icon}</span>
+                              <div>
+                                <div>{a.symbol}</div>
+                                <div className="text-[10px] text-muted-foreground">{a.name} · {a.category}</div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="tabular-nums py-3 text-right">{a.weight}</td>
+                          <td className="tabular-nums py-3 text-right">{formatCurrency(a.entryPrice)}</td>
+                          <td className="tabular-nums py-3 text-right">{formatCurrency(a.currentPrice)}</td>
+                          <td className="tabular-nums py-3 text-right">{formatCurrency(value)}</td>
+                          <td className={`tabular-nums py-3 text-right ${plPct >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                            {formatPercent(plPct)}
+                          </td>
+                          <td className="py-3 pr-5 text-right">
+                            <span className={`text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full ${riskClass}`}>
+                              {a.risk}
+                            </span>
+                          </td>
+                          <td className="py-3 pr-5 text-right text-xs whitespace-nowrap">
+                            <button onClick={() => setEditingAsset(a)} className="text-muted-foreground hover:text-foreground mr-2">Edit</button>
+                            <button onClick={() => handleDeleteAsset(a.id)} className="text-muted-foreground hover:text-red-400">Del</button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          );
+        })()}
+      </motion.section>
+
+      {/* ═══ SECTION 4: STRESS TESTS (live engine) — mock-style icon-chip header ═══ */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.3 }}
         className="mb-8"
       >
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-          <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
-            <Zap className="h-5 w-5 text-primary" />
-            Stress Test Scenarios
-          </h2>
-          {stressLoading && (
-            <span className="text-xs text-muted-foreground flex items-center gap-1.5">
-              <RefreshCw className="h-3 w-3 animate-spin" /> Loading…
-            </span>
-          )}
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-orange-400/10 flex items-center justify-center">
+              <Zap className="h-[18px] w-[18px] text-orange-400" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-foreground">Stress Test Scenarios</h2>
+              <p className="text-xs text-muted-foreground">
+                Multi-module library · modeled drawdowns, not forecasts
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            {stressLoading && (
+              <span className="text-xs text-muted-foreground flex items-center gap-1.5">
+                <RefreshCw className="h-3 w-3 animate-spin" /> Loading…
+              </span>
+            )}
+            <button
+              onClick={() => openDrawer('drawdown')}
+              className="text-xs text-muted-foreground hover:text-foreground"
+            >
+              How calculated ›
+            </button>
+          </div>
         </div>
 
         {/* Module selector tabs */}
@@ -1625,215 +1980,200 @@ export default function PortfolioPage() {
           </div>
         )}
 
-        {/* Scenario cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Mock-style scenario rows: divide-y, expandable, w/ horizontal drawdown bars */}
+        <div className="rounded-2xl border border-border bg-card divide-y divide-border overflow-hidden">
           {stressResults.map((r, i) => {
-            const badgeStyle = SOURCE_BADGE_STYLE[r.source_type] || SOURCE_BADGE_STYLE.replay;
+            const dd = r.portfolio_drawdown_pct ?? 0;
+            const open = !!expandedTests[r.scenario_id];
+            // Color bar intensity scales with drawdown severity
+            const barColor = dd >= 0
+              ? 'bg-green-500/40'
+              : dd > -5
+                ? 'bg-orange-400/40'
+                : dd > -15
+                  ? 'bg-orange-400/70'
+                  : dd > -25
+                    ? 'bg-red-500/60'
+                    : 'bg-red-500/80';
+            // Source-type badge
+            const badgeColor = r.source_type === 'replay'
+              ? 'border-blue-500/40 text-blue-300'
+              : r.source_type === 'replay_with_proxy'
+                ? 'border-orange-400/40 text-orange-300'
+                : r.source_type === 'synthetic'
+                  ? 'border-amber-400/40 text-amber-300'
+                  : r.source_type === 'factor'
+                    ? 'border-emerald-400/40 text-emerald-300'
+                    : 'border-border text-muted-foreground';
+            // Sparkline path: synthetic declining curve scaled to severity
+            const amp = Math.min(15, Math.abs(dd));
+            const sparkPath = [0, 10, 20, 30, 40, 50, 60, 70, 80]
+              .map((x, j) => `${j === 0 ? 'M' : 'L'}${x} ${(6 + amp * j / 8).toFixed(1)}`)
+              .join(' ');
+            const sparkColor = dd >= 0 ? 'text-green-400' : dd > -10 ? 'text-orange-400' : 'text-red-400';
+            const ddColor = dd >= 0 ? 'text-green-400' : dd > -5 ? 'text-orange-400' : 'text-red-400';
+
             return (
-              <motion.div
-                key={r.scenario_id}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.05 * i }}
-                className="bg-card border border-border rounded-2xl overflow-hidden"
-              >
-                {/* Header */}
-                <div
-                  className="p-5 cursor-pointer hover:bg-secondary/20 transition-colors"
+              <div key={r.scenario_id} className={open ? '' : ''}>
+                <button
                   onClick={() => toggleTest(r.scenario_id)}
+                  className="w-full flex items-center gap-4 px-5 py-4 text-left hover:bg-secondary/20 transition-colors"
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <p className="text-sm font-semibold text-foreground truncate">{r.scenario_name}</p>
-                        <span
-                          className={`text-[10px] px-1.5 py-0.5 rounded border whitespace-nowrap ${badgeStyle.bg} ${badgeStyle.text} ${badgeStyle.border}`}
-                          title={r.disclosure_text}
-                        >
+                  <span className={`w-1.5 h-8 rounded-full flex-shrink-0 ${barColor}`} />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-baseline gap-2 flex-wrap">
+                      <span className="text-sm font-medium text-foreground truncate">{r.scenario_name}</span>
+                      {r.period && (
+                        <span className="text-[11px] text-muted-foreground">{r.period}</span>
+                      )}
+                      {r.disclosure_label && (
+                        <span className={`text-[10px] uppercase tracking-wider border rounded-full px-2 py-0.5 ${badgeColor}`}>
                           {r.disclosure_label}
                         </span>
-                      </div>
-                      {r.period && (
-                        <p className="text-xs text-muted-foreground">{r.period}{r.duration_label ? ` · ${r.duration_label}` : ''}</p>
                       )}
-                      <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{r.description}</p>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <span className={`text-lg font-bold ${r.portfolio_drawdown_pct >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                        {formatPercent(r.portfolio_drawdown_pct)}
-                      </span>
-                      {expandedTests[r.scenario_id]
-                        ? <ChevronUp className="h-4 w-4 text-muted-foreground" />
-                        : <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                      }
-                    </div>
+                    {r.description && (
+                      <div className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{r.description}</div>
+                    )}
                   </div>
-                </div>
+                  <svg className={`hidden sm:block ${sparkColor}`} width="80" height="22" viewBox="0 0 80 22" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d={sparkPath} />
+                  </svg>
+                  <div className="text-right flex-shrink-0">
+                    <div className={`tabular-nums text-lg font-semibold ${ddColor}`}>{formatPercent(dd)}</div>
+                    <div className="text-[10px] text-muted-foreground">portfolio impact</div>
+                  </div>
+                  {open
+                    ? <ChevronUp className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+                    : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+                  }
+                </button>
 
-                {/* Expanded breakdown */}
                 <AnimatePresence>
-                  {expandedTests[r.scenario_id] && (
+                  {open && (
                     <motion.div
                       initial={{ height: 0, opacity: 0 }}
                       animate={{ height: 'auto', opacity: 1 }}
                       exit={{ height: 0, opacity: 0 }}
-                      className="border-t border-border"
+                      className="overflow-hidden"
                     >
-                      <div className="p-5 space-y-3">
-                        {/* Per-asset breakdown */}
-                        <div className="space-y-3">
-                          {r.per_asset_breakdown.map((row) => (
-                            <div key={row.symbol}>
-                              <div className="flex items-center justify-between text-sm">
-                                <div className="flex items-center gap-2 min-w-0">
-                                  <span className="text-foreground font-medium truncate">{row.symbol}</span>
-                                  <span className="text-[10px] text-muted-foreground">({row.asset_class})</span>
-                                  {row.proxy_used && (
-                                    <span className="text-[10px] px-1 py-0.5 rounded bg-purple-500/15 text-purple-300 border border-purple-500/30" title={row.proxy_note || ''}>
-                                      proxy
-                                    </span>
-                                  )}
-                                  {row.factor_loading_source === 'per_symbol' && (
-                                    <span className="text-[10px] px-1 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30" title="Per-symbol factor loadings (more precise than per-class)">
-                                      symbol-level
-                                    </span>
-                                  )}
-                                  {row.factor_loading_source === 'per_class' && (
-                                    <span className="text-[10px] px-1 py-0.5 rounded bg-gray-500/15 text-gray-300 border border-gray-500/30" title={`Class-level factor loadings (no per-symbol data for ${row.symbol})`}>
-                                      class-level
-                                    </span>
-                                  )}
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  <div className="w-24 h-1.5 bg-secondary rounded-full overflow-hidden">
-                                    <div
-                                      className={`h-full rounded-full ${row.contribution_pct >= 0 ? 'bg-green-500' : 'bg-red-500'}`}
-                                      style={{ width: `${Math.min(100, Math.abs(row.contribution_pct) * 4)}%` }}
-                                    />
+                      <div className="px-5 pb-5">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          {/* Per-asset paired bars (current vs stressed) */}
+                          <div className="md:col-span-2 rounded-xl border border-border bg-secondary/20 p-4">
+                            {(() => {
+                              const rows = r.per_asset_breakdown || [];
+                              const enriched = rows.map(row => {
+                                const current = (row.weight_pct / 100) * (totalValue || 0);
+                                const stressed = current * (1 + (row.shock_pct ?? 0) / 100);
+                                return { ...row, current, stressed, delta: stressed - current };
+                              });
+                              const maxVal = Math.max(1, ...enriched.flatMap(x => [x.current, Math.abs(x.stressed)]));
+                              const stressedTotal = enriched.reduce((s, x) => s + x.stressed, 0);
+                              const colorMap = { crypto: '#f59e0b', stock: '#3b82f6', futures: '#fcd34d', forex: '#06b6d4' };
+                              return (
+                                <>
+                                  <div className="flex items-baseline justify-between mb-3">
+                                    <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Per-asset · current vs stressed value</div>
+                                    <div className="text-[11px] tabular-nums text-muted-foreground">
+                                      <span className="text-foreground/90">{formatCurrency(totalValue)}</span>
+                                      <span className="mx-1.5 text-muted-foreground/60">→</span>
+                                      <span className={dd >= 0 ? 'text-green-400' : 'text-red-400'}>{formatCurrency(stressedTotal)}</span>
+                                    </div>
                                   </div>
-                                  <span className={`font-mono text-xs font-medium w-20 text-right ${row.contribution_pct >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                                    {formatPercent(row.contribution_pct)}
-                                  </span>
-                                </div>
-                              </div>
-                              {/* Factor decomposition (only for factor_shock module) */}
-                              {row.factor_contributions && (
-                                <div className="ml-6 mt-1.5 pl-3 border-l border-border/50 space-y-0.5">
-                                  {Object.entries(row.factor_contributions)
-                                    .filter(([_, v]) => Math.abs(v) > 0.01)
-                                    .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
-                                    .slice(0, 5)
-                                    .map(([factor, contrib]) => (
-                                      <div key={factor} className="flex justify-between text-[10px] text-muted-foreground">
-                                        <span>{factor}</span>
-                                        <span className={`font-mono ${contrib >= 0 ? 'text-green-400/80' : 'text-red-400/80'}`}>
-                                          {contrib >= 0 ? '+' : ''}{contrib.toFixed(2)}%
-                                        </span>
-                                      </div>
-                                    ))}
-                                </div>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-
-                        {/* Narrative */}
-                        <div className="pt-3 mt-3 border-t border-border/50 space-y-2 text-xs text-muted-foreground">
-                          <p><span className="text-foreground font-medium">Driver:</span> {r.main_damage_driver}</p>
-                          <p><span className="text-foreground font-medium">Buffer:</span> {r.buffer_contributor}</p>
-                          <p><span className="text-foreground font-medium">Sensitivity:</span> {r.most_sensitive_class}</p>
-                        </div>
-
-                        {/* Per-card disclosure */}
-                        {(r.proxy_used_classes?.length > 0 || r.fallback_used_classes?.length > 0 || r.source_type === 'synthetic' || r.source_type === 'factor') && (
-                          <div className="pt-3 mt-3 border-t border-border/50 flex items-start gap-2 text-[11px] text-muted-foreground bg-muted/30 rounded-lg p-2">
-                            <Info className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
-                            <span>{r.disclosure_text}</span>
+                                  <div className="space-y-3">
+                                    {enriched
+                                      .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
+                                      .map(row => {
+                                        const c = colorMap[row.asset_class] || '#64748b';
+                                        const cw = (row.current / maxVal) * 100;
+                                        const sw = (Math.abs(row.stressed) / maxVal) * 100;
+                                        const positive = row.delta >= 0;
+                                        return (
+                                          <div key={row.symbol} className="grid grid-cols-[60px_1fr_120px] items-center gap-3">
+                                            <div className="text-xs font-medium text-foreground truncate">{row.symbol}</div>
+                                            <div className="space-y-1.5">
+                                              <div className="h-2 rounded-sm" style={{ width: `${cw}%`, background: c }} title={`Current ${formatCurrency(row.current)}`} />
+                                              <div className="h-2 rounded-sm" style={{ width: `${sw}%`, background: `${c}55` }} title={`Stressed ${formatCurrency(row.stressed)} · ${formatPercent(row.shock_pct ?? 0)}`} />
+                                            </div>
+                                            <div className="text-right text-xs tabular-nums">
+                                              <div className={`font-medium ${positive ? 'text-green-400' : 'text-red-400'}`}>
+                                                {positive ? '+' : ''}{formatCurrency(row.delta)}
+                                              </div>
+                                              <div className={`text-[11px] ${positive ? 'text-green-400/80' : 'text-red-400/80'}`}>
+                                                {formatPercent(row.shock_pct ?? 0)}
+                                              </div>
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                  </div>
+                                  <div className="flex items-center justify-between mt-4 pt-3 border-t border-border">
+                                    <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
+                                      <span className="inline-flex items-center gap-1.5">
+                                        <span className="w-3 h-1.5 rounded-sm bg-foreground/80" />Current
+                                      </span>
+                                      <span className="inline-flex items-center gap-1.5">
+                                        <span className="w-3 h-1.5 rounded-sm bg-foreground/30" />Under stress
+                                      </span>
+                                    </div>
+                                  </div>
+                                </>
+                              );
+                            })()}
                           </div>
-                        )}
+
+                          {/* Sidebar: damage / buffer / sensitivity / source */}
+                          <div className="rounded-xl border border-border bg-secondary/20 p-4 space-y-3 text-sm">
+                            <div>
+                              <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1">Main damage driver</div>
+                              <div className="text-foreground/85">{r.main_damage_driver || '—'}</div>
+                            </div>
+                            <div>
+                              <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1">Buffer</div>
+                              <div className="text-foreground/85">{r.buffer_contributor || '—'}</div>
+                            </div>
+                            <div>
+                              <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1">Sensitivity</div>
+                              <div className="text-foreground/85">{r.most_sensitive_class || '—'}</div>
+                            </div>
+                            {r.disclosure_text && (
+                              <div className="pt-2 border-t border-border text-[11px] text-muted-foreground">
+                                {r.disclosure_text}
+                              </div>
+                            )}
+                            <button
+                              onClick={() => openDrawer('drawdown')}
+                              className="block text-[11px] text-foreground/80 hover:text-foreground"
+                            >
+                              View methodology ›
+                            </button>
+                          </div>
+                        </div>
                       </div>
                     </motion.div>
                   )}
                 </AnimatePresence>
-              </motion.div>
+              </div>
             );
           })}
         </div>
 
-        {/* Module-level disclosure footer */}
+        {/* Module-level source footer */}
         {stressResults.length > 0 && (
-          <div className="mt-4 flex items-start gap-2 text-xs text-muted-foreground bg-muted/20 border border-border rounded-lg p-3">
-            <Info className="h-4 w-4 mt-0.5 flex-shrink-0" />
-            <span>
-              Stress test outputs are risk-exposure simulations applied to your current holdings. They are not forecasts of future performance and not investment advice. Historical replays use peak-to-trough shock magnitudes from documented events; proxy-marked figures use similar-behavior asset substitutions when historical data does not exist; synthetic scenarios stack stresses for tail-risk awareness.
-            </span>
+          <div className="text-[11px] text-muted-foreground mt-4 flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span>Source: Polygon previous-close · asset-class shocks calibrated from observed peak-to-trough returns</span>
+            <span className="opacity-50">·</span>
+            <button onClick={() => openDrawer('drawdown')} className="text-foreground/80 hover:text-foreground">
+              View methodology
+            </button>
           </div>
         )}
           </>
         )}
       </motion.div>
 
-      {/* ═══ SECTION 4: KEY FINDINGS (derived from stress results) ═══ */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.4 }}
-        className="mb-8"
-      >
-        <h2 className="text-lg font-semibold text-foreground mb-5 flex items-center gap-2">
-          <Target className="h-5 w-5 text-primary" />
-          Key Findings
-        </h2>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {/* Worst Scenario — auto-derived from current stress results */}
-          <div className="bg-card border border-red-500/30 rounded-2xl p-5">
-            <div className="flex items-center gap-2 mb-3">
-              <div className="p-2 rounded-lg bg-red-500/10">
-                <AlertTriangle className="h-5 w-5 text-red-400" />
-              </div>
-              <p className="text-xs text-muted-foreground uppercase tracking-wider">Worst Scenario</p>
-            </div>
-            <p className="text-lg font-bold text-foreground mb-1">
-              {derivedKeyFindings ? derivedKeyFindings.worst.scenario_name : '—'}
-            </p>
-            <p className="text-3xl font-bold text-red-400">
-              {derivedKeyFindings ? formatPercent(derivedKeyFindings.worst.portfolio_drawdown_pct) : '—'}
-            </p>
-          </div>
-
-          {/* Lower Downside Scenario — scenario with smallest absolute drawdown */}
-          <div className="bg-card border border-green-500/30 rounded-2xl p-5">
-            <div className="flex items-center gap-2 mb-3">
-              <div className="p-2 rounded-lg bg-green-500/10">
-                <Shield className="h-5 w-5 text-green-400" />
-              </div>
-              <p className="text-xs text-muted-foreground uppercase tracking-wider">Lower Downside Scenario</p>
-            </div>
-            <p className="text-lg font-bold text-foreground mb-1">
-              {derivedKeyFindings ? derivedKeyFindings.lowerDownside.scenario_name : '—'}
-            </p>
-            <p className="text-sm text-green-400">
-              {derivedKeyFindings ? `Models ${formatPercent(derivedKeyFindings.lowerDownside.portfolio_drawdown_pct)} drawdown — least severe of this module` : '—'}
-            </p>
-          </div>
-
-          {/* Most Sensitive — observation derived from worst scenario's most_sensitive_class */}
-          <div className="bg-card border border-blue-500/30 rounded-2xl p-5">
-            <div className="flex items-center gap-2 mb-3">
-              <div className="p-2 rounded-lg bg-blue-500/10">
-                <Activity className="h-5 w-5 text-blue-400" />
-              </div>
-              <p className="text-xs text-muted-foreground uppercase tracking-wider">Most Sensitive</p>
-            </div>
-            <p className="text-sm text-foreground leading-snug">
-              {derivedKeyFindings ? derivedKeyFindings.mostSensitive : '—'}
-            </p>
-          </div>
-        </div>
-      </motion.div>
-
-      {/* ═══ SECTION 4.5: DIVERSIFICATION MATRIX (Correlation) ═══ */}
+      {/* ═══ SECTION 5: DIVERSIFICATION MATRIX (Correlation) — mock-style icon-chip header ═══ */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -1841,91 +2181,265 @@ export default function PortfolioPage() {
         className="mb-8"
       >
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
-            <Activity className="h-5 w-5 text-primary" />
-            Diversification Matrix
-          </h2>
-          {correlationLoading && (
-            <span className="text-xs text-muted-foreground flex items-center gap-1.5">
-              <RefreshCw className="h-3 w-3 animate-spin" /> Loading…
-            </span>
-          )}
-        </div>
-        <CorrelationMatrix
-          data={correlationData}
-          loading={correlationLoading}
-          error={correlationError}
-          assets={assets}
-        />
-      </motion.div>
-
-      {/* ═══ SECTION 5: AI COMMENTARY ═══ */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.5 }}
-        className="bg-card border border-border rounded-2xl p-6 mb-8"
-      >
-        <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-purple-500/10">
-              <Brain className="h-5 w-5 text-purple-400" />
+            <div className="w-9 h-9 rounded-lg bg-green-500/10 flex items-center justify-center">
+              <Activity className="h-[18px] w-[18px] text-green-400" />
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-foreground">AI Analysis</h2>
-              <p className="text-xs text-muted-foreground">
-                {aiSummary?.source === 'ai'
-                  ? `Powered by Safeguard AI${aiSummary.cached ? ' · cached' : ''}`
-                  : aiSummary?.source === 'template'
-                    ? 'Rule-based analysis (AI offline)'
-                    : 'Powered by Safeguard AI'}
-              </p>
+              <h2 className="text-lg font-semibold text-foreground">Diversification Matrix</h2>
+              <p className="text-xs text-muted-foreground">Pairwise correlation · 180-day window</p>
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex items-center gap-3">
+            {correlationLoading && (
+              <span className="text-xs text-muted-foreground flex items-center gap-1.5">
+                <RefreshCw className="h-3 w-3 animate-spin" /> Loading…
+              </span>
+            )}
             <button
-              onClick={handleCopyAI}
-              disabled={!aiSummary?.summary && !aiLoading}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs text-muted-foreground hover:bg-secondary/50 transition-colors disabled:opacity-40"
+              onClick={() => openDrawer('correlation')}
+              className="text-xs text-muted-foreground hover:text-foreground"
             >
-              {copiedAI ? <Check className="h-3.5 w-3.5 text-green-400" /> : <Copy className="h-3.5 w-3.5" />}
-              {copiedAI ? 'Copied' : 'Copy'}
-            </button>
-            <button
-              onClick={() => setAiRefreshTick(t => t + 1)}
-              disabled={aiLoading || !assets.length}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs text-muted-foreground hover:bg-secondary/50 transition-colors disabled:opacity-40"
-            >
-              <RefreshCw className={`h-3.5 w-3.5 ${aiLoading ? 'animate-spin' : ''}`} />
-              {aiLoading ? 'Generating…' : 'Regenerate'}
+              How calculated ›
             </button>
           </div>
         </div>
+        {(() => {
+          if (correlationError) {
+            return (
+              <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-300">
+                Correlation engine error: {correlationError}
+              </div>
+            );
+          }
+          if (!correlationData?.success || !correlationData?.matrix?.length) {
+            return (
+              <div className="rounded-2xl border border-border bg-card p-6 text-center text-sm text-muted-foreground">
+                {correlationLoading
+                  ? 'Computing pairwise correlation…'
+                  : assets.length < 2
+                    ? 'Need at least 2 holdings with overlapping price history.'
+                    : 'No correlation data available.'}
+              </div>
+            );
+          }
+          const symbols = correlationData.symbols || [];
+          const matrix = correlationData.matrix;
+          // Color-grade per |ρ|: positive → orange/red ramp, negative → green ramp, near 0 → muted
+          const cellStyle = (v) => {
+            if (v === null || v === undefined) return { background: 'transparent', color: 'inherit' };
+            if (Math.abs(v) < 0.1) return { background: 'hsl(220 8% 30% / 0.35)', color: '#cbd5e1' };
+            if (v > 0) {
+              const intensity = Math.min(0.5, Math.abs(v) * 0.55);
+              const hue = v > 0.7 ? '0 72% 60%' : '36 92% 60%';
+              return { background: `hsl(${hue} / ${intensity})`, color: v > 0.7 ? '#fef2f2' : '#fff7ed' };
+            }
+            return { background: `hsl(152 56% 50% / ${Math.min(0.45, Math.abs(v) * 0.55)})`, color: '#d1fae5' };
+          };
+          const hp = correlationData.diagnostics?.highest_pair;
+          const bd = correlationData.diagnostics?.best_diversifier;
+          return (
+            <>
+              <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-4">
+                <div className="rounded-2xl border border-border bg-card p-5 overflow-x-auto">
+                  <table className="w-full text-xs" style={{ borderSpacing: '4px', borderCollapse: 'separate' }}>
+                    <thead>
+                      <tr>
+                        <th />
+                        {symbols.map(s => (
+                          <th key={s} className="text-[11px] text-muted-foreground py-1 text-center">{s}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="tabular-nums">
+                      {symbols.map((rowSym, ri) => (
+                        <tr key={rowSym}>
+                          <th className="text-right text-[11px] text-muted-foreground pr-2">{rowSym}</th>
+                          {symbols.map((colSym, ci) => {
+                            if (ri === ci) {
+                              return <td key={colSym} className="text-center text-muted-foreground/60">·</td>;
+                            }
+                            const v = matrix[ri][ci];
+                            return (
+                              <td key={colSym} className="text-center rounded px-1.5 py-1" style={cellStyle(v)}>
+                                {v >= 0 ? v.toFixed(2) : '−' + Math.abs(v).toFixed(2)}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <div className="mt-5 flex items-center gap-3">
+                    <span className="text-[11px] text-muted-foreground">Independent</span>
+                    <div className="flex-1 h-2 rounded-full" style={{ background: 'linear-gradient(to right, hsl(152 56% 50%), hsl(220 8% 35%), hsl(36 92% 60%), hsl(0 72% 60%))' }} />
+                    <span className="text-[11px] text-muted-foreground">Lockstep</span>
+                  </div>
+                </div>
 
-        <div className="border-l-2 border-purple-500/40 pl-5">
-          {!assets.length ? (
-            <p className="text-sm text-muted-foreground italic">
-              Add at least one asset to generate an analysis.
-            </p>
-          ) : aiLoading && !aiSummary ? (
-            <p className="text-sm text-muted-foreground italic">
-              Generating analysis from your portfolio composition…
-            </p>
-          ) : aiError && !aiSummary ? (
-            <p className="text-sm text-red-400">{aiError}</p>
-          ) : aiSummary?.summary ? (
-            aiSummary.summary.split('\n\n').map((paragraph, i) => (
-              <p key={i} className="text-sm text-muted-foreground leading-relaxed mb-3 last:mb-0">
-                {paragraph}
-              </p>
-            ))
-          ) : (
-            <p className="text-sm text-muted-foreground italic">
-              Waiting for portfolio data…
-            </p>
-          )}
-        </div>
+                <div className="space-y-3">
+                  <div className="rounded-2xl border border-border bg-card p-4">
+                    <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1">Most concentrated pair</div>
+                    {hp ? (
+                      <>
+                        <div className="text-lg font-semibold tabular-nums">{hp.a} ↔ {hp.b} · {hp.corr.toFixed(2)}</div>
+                        <div className="text-xs text-muted-foreground mt-1">
+                          {Math.abs(hp.corr) > 0.7
+                            ? 'Strongly co-moves — diversifying away from one means similar exposure remains.'
+                            : 'Moderate co-movement.'}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="text-sm text-muted-foreground">—</div>
+                    )}
+                  </div>
+                  <div className="rounded-2xl border border-border bg-card p-4">
+                    <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1">Strongest diversifier</div>
+                    {bd ? (
+                      <>
+                        <div className="text-lg font-semibold tabular-nums text-green-400">
+                          {bd.symbol} · {bd.avg_corr_excluding_self >= 0 ? '' : '−'}{Math.abs(bd.avg_corr_excluding_self).toFixed(2)} avg
+                        </div>
+                        <div className="text-xs text-muted-foreground mt-1">
+                          Lowest mean pairwise correlation — most independent component of the portfolio.
+                        </div>
+                      </>
+                    ) : (
+                      <div className="text-sm text-muted-foreground">—</div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="text-[11px] text-muted-foreground mt-4 flex items-center gap-3">
+                <span>Source: Polygon daily returns · {correlationData.n_observations} obs · {correlationData.window_days}-day window</span>
+                <span className="opacity-50">·</span>
+                <button onClick={() => openDrawer('correlation')} className="text-foreground/80 hover:text-foreground">
+                  View methodology
+                </button>
+              </div>
+            </>
+          );
+        })()}
       </motion.div>
+
+      {/* ═══ PAGE FOOTER DISCLAIMER (mock parity) ═══ */}
+      <footer className="mt-16 border-t border-border pt-6 text-xs text-muted-foreground">
+        Safeguard provides analytical observations only. Nothing on this page is investment advice.
+        All figures are modeled scenarios derived from your portfolio composition; past observations do not predict future returns.
+        <button
+          onClick={() => openDrawer('overview')}
+          className="text-foreground/80 hover:text-foreground ml-1"
+        >
+          Methodology ›
+        </button>
+      </footer>
+
+      {/* ═══ METHODOLOGY DRAWER — single transparency surface for all factors ═══ */}
+      {drawerOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-40 transition-opacity"
+          onClick={() => setDrawerOpen(false)}
+          aria-hidden
+        />
+      )}
+      <aside
+        className={`fixed top-0 right-0 bottom-0 w-full max-w-[480px] bg-card border-l border-border z-50 overflow-y-auto transition-transform duration-200 ${
+          drawerOpen ? 'translate-x-0' : 'translate-x-full'
+        }`}
+        aria-hidden={!drawerOpen}
+      >
+        <div className="sticky top-0 bg-card/95 backdrop-blur border-b border-border p-5 flex items-center justify-between">
+          <div>
+            <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Methodology</p>
+            <p className="text-base font-semibold mt-0.5">How this is calculated</p>
+          </div>
+          <button
+            onClick={() => setDrawerOpen(false)}
+            className="text-muted-foreground hover:text-foreground p-1"
+            aria-label="Close methodology drawer"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-5 text-sm leading-relaxed">
+          {drawerSection === 'overview' && (
+            <section>
+              <h3 className="text-sm font-semibold mb-2">Overview</h3>
+              <p className="text-foreground/85">
+                Every number on this page is reproducible from the portfolio composition and a small
+                set of historical-data lookups. There is no opaque ML model. The engine answers a
+                single question: <em>if a specific historical or hypothetical event happened today,
+                how would this portfolio behave?</em>
+              </p>
+            </section>
+          )}
+
+          {drawerSection === 'health' && (
+            <section>
+              <h3 className="text-sm font-semibold mb-2">Portfolio Health composite</h3>
+              <p className="text-foreground/85">
+                A 0–100 score derived from five independent dimensions. Each dimension produces a
+                sub-score (0 = severe, 100 = ideal); the composite is the equally-weighted mean of
+                whichever sub-scores have data. <span className="text-orange-400">Stressed</span>{' '}
+                = 50–79, <span className="text-red-400">Fragile</span> = below 50.
+              </p>
+              <ul className="list-disc list-outside pl-5 text-foreground/85 space-y-1.5 mt-2">
+                <li><b>Concentration</b> — Herfindahl-Hirschman Index on holdings weights; HHI ≤ 0.10 → 100, ≥ 0.40 → 0.</li>
+                <li><b>Correlation</b> — mean of absolute pairwise correlations from the 180-day window.</li>
+                <li><b>Macro exposure</b> — class-level HHI (asset-class diversification, not factor-model exposure).</li>
+                <li><b>Sentiment skew</b> — symmetric distance of aggregated social-signal mean from neutral; both extremes lower the score.</li>
+                <li><b>Volatility</b> — weighted mean of (recent 30-day std / long 180-day std). Ratios well above 1 indicate volatility clustering.</li>
+              </ul>
+              <p className="text-muted-foreground mt-2">
+                Soft-failed factors (no posts, insufficient price history) are excluded from the
+                composite mean rather than counted as zero, so cold-start data gaps do not unfairly
+                drag the score to Fragile.
+              </p>
+            </section>
+          )}
+
+          {drawerSection === 'correlation' && (
+            <section>
+              <h3 className="text-sm font-semibold mb-2">Pairwise correlation</h3>
+              <p className="text-foreground/85">
+                For each pair of assets, compute the Pearson correlation of their daily returns over
+                a 180-day trailing window. Cells closer to <span className="text-red-400">+1</span>{' '}
+                = move in lockstep; closer to <span className="text-green-400">−1</span> = move
+                opposite; near 0 = independent.
+              </p>
+              <p className="text-muted-foreground mt-2">
+                Past correlations do not predict future correlations — this is observation, not
+                forecast. Correlations historically rise sharply during market stress.
+              </p>
+            </section>
+          )}
+
+          {drawerSection === 'drawdown' && (
+            <section>
+              <h3 className="text-sm font-semibold mb-2">Modeled drawdown</h3>
+              <p className="text-foreground/85">
+                For each holding <span className="tabular-nums">i</span>:{' '}
+                <code className="text-xs bg-secondary/50 px-1.5 py-0.5 rounded">
+                  contribution_i = weight_i × shock_i
+                </code>
+                . Portfolio drawdown is the sum across holdings.
+              </p>
+              <p className="text-muted-foreground mt-2">
+                Per-asset shocks come from the chosen scenario's calibrated table — historical
+                peak-to-trough returns, factor-loading projections, or directly user-defined shock
+                magnitudes.
+              </p>
+            </section>
+          )}
+
+          <p className="text-[11px] text-muted-foreground pt-2 border-t border-border">
+            Implementation: backend/application/services/ — portfolio_health.py, correlation_engine.py,
+            stress_engine.py
+          </p>
+        </div>
+      </aside>
     </div>
   );
 }
