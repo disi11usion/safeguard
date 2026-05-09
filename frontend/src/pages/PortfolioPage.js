@@ -1783,58 +1783,58 @@ export default function PortfolioPage() {
           const maxAssetValue = Math.max(1, ...sortedByValue.map(s => s.value));
 
           return (
-            <div className={chartView === 'list' ? '' : 'grid grid-cols-1 lg:grid-cols-[1fr_1fr_2fr] gap-4'}>
+            <div className="space-y-4">
               {chartView !== 'list' && (
-                <div className="rounded-2xl border border-border bg-card p-5">
-                  <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-3">Allocation</div>
-                  <div className="flex items-center justify-center mb-4">
-                    <svg viewBox="0 0 42 42" width="150" height="150">
-                      <circle cx="21" cy="21" r="15.915" fill="transparent" stroke="hsl(220 8% 24%)" strokeWidth="6" />
-                      {slices.map(s => (
-                        <circle
-                          key={s.symbol}
-                          cx="21" cy="21" r="15.915"
-                          fill="transparent"
-                          stroke={s.color}
-                          strokeWidth="6"
-                          strokeDasharray={`${s.pct} ${100 - s.pct}`}
-                          strokeDashoffset={s.offset}
-                          transform="rotate(-90 21 21)"
-                        />
-                      ))}
-                      <text x="21" y="20" textAnchor="middle" fontSize="3.6" fill="currentColor" className="text-foreground" fontWeight="600">
-                        {formatCurrency(totalValue)}
-                      </text>
-                      <text x="21" y="24" textAnchor="middle" fontSize="2.2" fill="currentColor" className="text-muted-foreground">
-                        Total
-                      </text>
-                    </svg>
-                  </div>
-                  <div className="grid grid-cols-2 gap-y-1 text-[11px]">
-                    {slices.map(s => (
-                      <div key={s.symbol} className="flex items-center gap-1.5 min-w-0">
-                        <span className="w-2 h-2 rounded-sm flex-shrink-0" style={{ background: s.color }} />
-                        <span className="truncate">{s.symbol}</span>
-                        <span className="tabular-nums text-muted-foreground ml-auto">{Math.round(s.pct)}%</span>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  <div className="rounded-2xl border border-border bg-card p-5">
+                    <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-3">Allocation</div>
+                    <div className="flex flex-col sm:flex-row items-center gap-5">
+                      <svg viewBox="0 0 42 42" width="170" height="170" className="flex-shrink-0">
+                        <circle cx="21" cy="21" r="15.915" fill="transparent" stroke="hsl(220 8% 24%)" strokeWidth="6" />
+                        {slices.map(s => (
+                          <circle
+                            key={s.symbol}
+                            cx="21" cy="21" r="15.915"
+                            fill="transparent"
+                            stroke={s.color}
+                            strokeWidth="6"
+                            strokeDasharray={`${s.pct} ${100 - s.pct}`}
+                            strokeDashoffset={s.offset}
+                            transform="rotate(-90 21 21)"
+                          />
+                        ))}
+                        <text x="21" y="20" textAnchor="middle" fontSize="3.4" fill="currentColor" className="text-foreground" fontWeight="600">
+                          {formatCurrency(totalValue)}
+                        </text>
+                        <text x="21" y="24" textAnchor="middle" fontSize="2.2" fill="currentColor" className="text-muted-foreground">
+                          Total
+                        </text>
+                      </svg>
+                      <div className="grid grid-cols-1 gap-y-1.5 text-xs flex-1 w-full">
+                        {slices.map(s => (
+                          <div key={s.symbol} className="flex items-center gap-2 min-w-0">
+                            <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: s.color }} />
+                            <span className="truncate">{s.symbol}</span>
+                            <span className="tabular-nums text-muted-foreground ml-auto">{Math.round(s.pct)}%</span>
+                          </div>
+                        ))}
                       </div>
-                    ))}
+                    </div>
                   </div>
-                </div>
-              )}
 
-              {chartView !== 'list' && (
-                <div className="rounded-2xl border border-border bg-card p-5">
-                  <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-3">By holdings value</div>
-                  <div className="space-y-2">
-                    {sortedByValue.map(s => (
-                      <div key={s.symbol} className="grid grid-cols-[36px_1fr_60px] items-center gap-2 text-xs">
-                        <span className="font-medium truncate">{s.symbol}</span>
-                        <div className="h-3 rounded-sm" style={{ width: `${(s.value / maxAssetValue) * 100}%`, background: s.color, minWidth: 4 }} />
-                        <span className="text-right tabular-nums text-muted-foreground">
-                          {s.value >= 1000 ? `$${(s.value / 1000).toFixed(0)}k` : formatCurrency(s.value)}
-                        </span>
-                      </div>
-                    ))}
+                  <div className="rounded-2xl border border-border bg-card p-5">
+                    <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-3">By holdings value</div>
+                    <div className="space-y-2.5">
+                      {sortedByValue.map(s => (
+                        <div key={s.symbol} className="grid grid-cols-[50px_1fr_80px] items-center gap-3 text-xs">
+                          <span className="font-medium truncate">{s.symbol}</span>
+                          <div className="h-3 rounded-sm" style={{ width: `${(s.value / maxAssetValue) * 100}%`, background: s.color, minWidth: 4 }} />
+                          <span className="text-right tabular-nums text-muted-foreground">
+                            {s.value >= 1000 ? `$${(s.value / 1000).toFixed(0)}k` : formatCurrency(s.value)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </div>
               )}
