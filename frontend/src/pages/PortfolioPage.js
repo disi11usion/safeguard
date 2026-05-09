@@ -36,11 +36,13 @@ function inferRisk(symbol, category) {
 // ═══════════════════════════════════════════
 
 const MOCK_ASSETS = [
-  { id: 1, symbol: 'BTC',  name: 'Bitcoin',        category: 'crypto',  weight: 25, entryPrice: 42000, currentPrice: 79534, risk: 'HIGH' },
-  { id: 2, symbol: 'AAPL', name: 'Apple Inc.',     category: 'stock',   weight: 20, entryPrice: 178,   currentPrice: 213,   risk: 'LOW' },
-  { id: 3, symbol: 'Gold', name: 'Gold',           category: 'futures', weight: 25, entryPrice: 1950,  currentPrice: 2340,  risk: 'LOW' },
-  { id: 4, symbol: 'ETH',  name: 'Ethereum',       category: 'crypto',  weight: 15, entryPrice: 2200,  currentPrice: 3180,  risk: 'HIGH' },
-  { id: 5, symbol: 'MSFT', name: 'Microsoft Corp.',category: 'stock',   weight: 15, entryPrice: 380,   currentPrice: 425,   risk: 'MEDIUM' },
+  // Quantities chosen so that entryPrice × weight produces a balanced cost-basis demo
+  // (matches Portfolio_Redesign_Mock.html sample portfolio).
+  { id: 1, symbol: 'BTC',  name: 'Bitcoin',        category: 'crypto',  weight: 0.6, entryPrice: 42000, currentPrice: 79534, risk: 'HIGH' },
+  { id: 2, symbol: 'AAPL', name: 'Apple Inc.',     category: 'stock',   weight: 100, entryPrice: 178,   currentPrice: 213,   risk: 'LOW' },
+  { id: 3, symbol: 'Gold', name: 'Gold',           category: 'futures', weight: 20,  entryPrice: 1950,  currentPrice: 2340,  risk: 'LOW' },
+  { id: 4, symbol: 'ETH',  name: 'Ethereum',       category: 'crypto',  weight: 8,   entryPrice: 2200,  currentPrice: 3180,  risk: 'HIGH' },
+  { id: 5, symbol: 'MSFT', name: 'Microsoft Corp.',category: 'stock',   weight: 50,  entryPrice: 380,   currentPrice: 425,   risk: 'MEDIUM' },
 ];
 
 const MOCK_HEALTH = {
@@ -1254,6 +1256,16 @@ export default function PortfolioPage() {
     return { value: v, label };
   }, [health]);
 
+  // Stable symbol → color map. Shared by Your Assets pie/bar and Stress
+  // per-asset bars so BTC (etc.) renders the same color everywhere.
+  const SLICE_COLORS = ['#f59e0b', '#3b82f6', '#10b981', '#8b5cf6', '#ef4444', '#06b6d4', '#ec4899'];
+  const symbolColor = useMemo(() => {
+    const m = {};
+    assets.forEach((a, i) => { m[a.symbol] = SLICE_COLORS[i % SLICE_COLORS.length]; });
+    return m;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assets.map(a => a.symbol).join('|')]);
+
   // Fetch correlation when assets change (and there are ≥2)
   useEffect(() => {
     if (!assets || assets.length < 2) {
@@ -1755,12 +1767,15 @@ export default function PortfolioPage() {
 
         {(() => {
           const totalWeight = assets.reduce((s, a) => s + (a.weight || 0), 0) || 1;
-          const sliceColors = ['#f59e0b', '#3b82f6', '#10b981', '#8b5cf6', '#ef4444', '#06b6d4', '#ec4899'];
+          // Cost-basis convention (entryPrice × weight) — matches totalValue and the
+          // 92%-vs-... HHI/concentration math used everywhere else on the page.
+          const costByAsset = assets.map(a => (a.entryPrice || 0) * (a.weight || 0));
+          const totalCost = costByAsset.reduce((s, v) => s + v, 0) || 1;
           let cumulative = 0;
           const slices = assets.map((a, i) => {
-            const pct = (a.weight || 0) / totalWeight * 100;
-            const value = (a.currentPrice || 0) * (a.weight || 0);
-            const seg = { ...a, pct, value, color: sliceColors[i % sliceColors.length], offset: -cumulative };
+            const value = costByAsset[i];
+            const pct = (value / totalCost) * 100;
+            const seg = { ...a, pct, value, color: symbolColor[a.symbol] || SLICE_COLORS[i % SLICE_COLORS.length], offset: -cumulative };
             cumulative += pct;
             return seg;
           });
@@ -1840,7 +1855,9 @@ export default function PortfolioPage() {
                   </thead>
                   <tbody className="divide-y divide-border">
                     {assets.map(a => {
-                      const value = (a.currentPrice || 0) * (a.weight || 0);
+                      // Holdings = cost basis (entryPrice × quantity) — matches
+                      // totalValue, mock convention, and the bar chart above.
+                      const value = (a.entryPrice || 0) * (a.weight || 0);
                       const plPct = a.entryPrice > 0
                         ? ((a.currentPrice - a.entryPrice) / a.entryPrice) * 100
                         : 0;
@@ -2017,10 +2034,13 @@ export default function PortfolioPage() {
                   : r.source_type === 'factor'
                     ? 'border-emerald-400/40 text-emerald-300'
                     : 'border-border text-muted-foreground';
-            // Sparkline path: synthetic declining curve scaled to severity
+            // Sparkline path: direction reflects sign (gain rises, loss falls),
+            // amplitude scales with magnitude. y is inverted in SVG (y=0 is top).
             const amp = Math.min(15, Math.abs(dd));
+            const sign = dd >= 0 ? -1 : 1;       // negative dy = visually rising
+            const startY = dd >= 0 ? 17 : 5;     // start near floor for gains, near ceiling for losses
             const sparkPath = [0, 10, 20, 30, 40, 50, 60, 70, 80]
-              .map((x, j) => `${j === 0 ? 'M' : 'L'}${x} ${(6 + amp * j / 8).toFixed(1)}`)
+              .map((x, j) => `${j === 0 ? 'M' : 'L'}${x} ${(startY + sign * amp * j / 8).toFixed(1)}`)
               .join(' ');
             const sparkColor = dd >= 0 ? 'text-green-400' : dd > -10 ? 'text-orange-400' : 'text-red-400';
             const ddColor = dd >= 0 ? 'text-green-400' : dd > -5 ? 'text-orange-400' : 'text-red-400';
@@ -2070,98 +2090,148 @@ export default function PortfolioPage() {
                       className="overflow-hidden"
                     >
                       <div className="px-5 pb-5">
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                          {/* Per-asset paired bars (current vs stressed) */}
-                          <div className="md:col-span-2 rounded-xl border border-border bg-secondary/20 p-4">
-                            {(() => {
-                              const rows = r.per_asset_breakdown || [];
-                              const enriched = rows.map(row => {
-                                const current = (row.weight_pct / 100) * (totalValue || 0);
-                                const stressed = current * (1 + (row.shock_pct ?? 0) / 100);
-                                return { ...row, current, stressed, delta: stressed - current };
-                              });
-                              const maxVal = Math.max(1, ...enriched.flatMap(x => [x.current, Math.abs(x.stressed)]));
-                              const stressedTotal = enriched.reduce((s, x) => s + x.stressed, 0);
-                              const colorMap = { crypto: '#f59e0b', stock: '#3b82f6', futures: '#fcd34d', forex: '#06b6d4' };
-                              return (
-                                <>
-                                  <div className="flex items-baseline justify-between mb-3">
-                                    <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Per-asset · current vs stressed value</div>
-                                    <div className="text-[11px] tabular-nums text-muted-foreground">
-                                      <span className="text-foreground/90">{formatCurrency(totalValue)}</span>
-                                      <span className="mx-1.5 text-muted-foreground/60">→</span>
-                                      <span className={dd >= 0 ? 'text-green-400' : 'text-red-400'}>{formatCurrency(stressedTotal)}</span>
+                        {(() => {
+                          const rows = r.per_asset_breakdown || [];
+                          const enriched = rows.map(row => {
+                            const current = (row.weight_pct / 100) * (totalValue || 0);
+                            const stressedRaw = current * (1 + (row.shock_pct ?? 0) / 100);
+                            const stressed = Math.max(0, stressedRaw);
+                            return { ...row, current, stressed, delta: stressed - current };
+                          });
+                          const maxVal = Math.max(1, ...enriched.flatMap(x => [x.current, Math.abs(x.stressed)]));
+                          const stressedTotal = enriched.reduce((s, x) => s + x.stressed, 0) || 1;
+                          // Post-shock allocation slices for the pie
+                          let cum = 0;
+                          const stressedSlices = enriched.map(row => {
+                            const pct = (row.stressed / stressedTotal) * 100;
+                            const seg = {
+                              symbol: row.symbol,
+                              pct,
+                              color: symbolColor[row.symbol] || '#64748b',
+                              offset: -cum,
+                            };
+                            cum += pct;
+                            return seg;
+                          });
+
+                          return (
+                            <div className="grid grid-cols-1 md:grid-cols-[1fr_2fr_1fr] gap-4">
+                              {/* Post-shock allocation pie */}
+                              <div className="rounded-xl border border-border bg-secondary/20 p-4">
+                                <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-3">
+                                  Post-shock allocation
+                                </div>
+                                <div className="flex items-center justify-center mb-3">
+                                  <svg viewBox="0 0 42 42" width="120" height="120">
+                                    <circle cx="21" cy="21" r="15.915" fill="transparent" stroke="hsl(220 8% 24%)" strokeWidth="6" />
+                                    {stressedSlices.map(s => (
+                                      <circle
+                                        key={s.symbol}
+                                        cx="21" cy="21" r="15.915"
+                                        fill="transparent"
+                                        stroke={s.color}
+                                        strokeWidth="6"
+                                        strokeDasharray={`${s.pct} ${100 - s.pct}`}
+                                        strokeDashoffset={s.offset}
+                                        transform="rotate(-90 21 21)"
+                                      />
+                                    ))}
+                                    <text x="21" y="20" textAnchor="middle" fontSize="3" fill="currentColor" className="text-foreground" fontWeight="600">
+                                      {formatCurrency(stressedTotal)}
+                                    </text>
+                                    <text x="21" y="24" textAnchor="middle" fontSize="2" fill="currentColor" className="text-muted-foreground">
+                                      Post-shock
+                                    </text>
+                                  </svg>
+                                </div>
+                                <div className="text-[11px] tabular-nums text-muted-foreground text-center mb-3">
+                                  <span className="text-foreground/90">{formatCurrency(totalValue)}</span>
+                                  <span className="mx-1.5 text-muted-foreground/60">→</span>
+                                  <span className={dd >= 0 ? 'text-green-400' : 'text-red-400'}>{formatCurrency(stressedTotal)}</span>
+                                </div>
+                                <div className="space-y-1 text-[11px]">
+                                  {stressedSlices.map(s => (
+                                    <div key={s.symbol} className="flex items-center gap-1.5 min-w-0">
+                                      <span className="w-2 h-2 rounded-sm flex-shrink-0" style={{ background: s.color }} />
+                                      <span className="truncate">{s.symbol}</span>
+                                      <span className="tabular-nums text-muted-foreground ml-auto">{Math.round(s.pct)}%</span>
                                     </div>
-                                  </div>
-                                  <div className="space-y-3">
-                                    {enriched
-                                      .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
-                                      .map(row => {
-                                        const c = colorMap[row.asset_class] || '#64748b';
-                                        const cw = (row.current / maxVal) * 100;
-                                        const sw = (Math.abs(row.stressed) / maxVal) * 100;
-                                        const positive = row.delta >= 0;
-                                        return (
-                                          <div key={row.symbol} className="grid grid-cols-[60px_1fr_120px] items-center gap-3">
-                                            <div className="text-xs font-medium text-foreground truncate">{row.symbol}</div>
-                                            <div className="space-y-1.5">
-                                              <div className="h-2 rounded-sm" style={{ width: `${cw}%`, background: c }} title={`Current ${formatCurrency(row.current)}`} />
-                                              <div className="h-2 rounded-sm" style={{ width: `${sw}%`, background: `${c}55` }} title={`Stressed ${formatCurrency(row.stressed)} · ${formatPercent(row.shock_pct ?? 0)}`} />
+                                  ))}
+                                </div>
+                              </div>
+
+                              {/* Per-asset paired bars (current vs stressed) */}
+                              <div className="rounded-xl border border-border bg-secondary/20 p-4">
+                                <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-3">
+                                  Per-asset · current vs stressed value
+                                </div>
+                                <div className="space-y-3">
+                                  {enriched
+                                    .slice()
+                                    .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
+                                    .map(row => {
+                                      const c = symbolColor[row.symbol] || '#64748b';
+                                      const cw = (row.current / maxVal) * 100;
+                                      const sw = (Math.abs(row.stressed) / maxVal) * 100;
+                                      const positive = row.delta >= 0;
+                                      return (
+                                        <div key={row.symbol} className="grid grid-cols-[50px_1fr_110px] items-center gap-3">
+                                          <div className="text-xs font-medium text-foreground truncate">{row.symbol}</div>
+                                          <div className="space-y-1.5">
+                                            <div className="h-2 rounded-sm" style={{ width: `${cw}%`, background: c }} title={`Current ${formatCurrency(row.current)}`} />
+                                            <div className="h-2 rounded-sm" style={{ width: `${sw}%`, background: `${c}55` }} title={`Stressed ${formatCurrency(row.stressed)} · ${formatPercent(row.shock_pct ?? 0)}`} />
+                                          </div>
+                                          <div className="text-right text-xs tabular-nums">
+                                            <div className={`font-medium ${positive ? 'text-green-400' : 'text-red-400'}`}>
+                                              {positive ? '+' : ''}{formatCurrency(row.delta)}
                                             </div>
-                                            <div className="text-right text-xs tabular-nums">
-                                              <div className={`font-medium ${positive ? 'text-green-400' : 'text-red-400'}`}>
-                                                {positive ? '+' : ''}{formatCurrency(row.delta)}
-                                              </div>
-                                              <div className={`text-[11px] ${positive ? 'text-green-400/80' : 'text-red-400/80'}`}>
-                                                {formatPercent(row.shock_pct ?? 0)}
-                                              </div>
+                                            <div className={`text-[11px] ${positive ? 'text-green-400/80' : 'text-red-400/80'}`}>
+                                              {formatPercent(row.shock_pct ?? 0)}
                                             </div>
                                           </div>
-                                        );
-                                      })}
-                                  </div>
-                                  <div className="flex items-center justify-between mt-4 pt-3 border-t border-border">
-                                    <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
-                                      <span className="inline-flex items-center gap-1.5">
-                                        <span className="w-3 h-1.5 rounded-sm bg-foreground/80" />Current
-                                      </span>
-                                      <span className="inline-flex items-center gap-1.5">
-                                        <span className="w-3 h-1.5 rounded-sm bg-foreground/30" />Under stress
-                                      </span>
-                                    </div>
-                                  </div>
-                                </>
-                              );
-                            })()}
-                          </div>
-
-                          {/* Sidebar: damage / buffer / sensitivity / source */}
-                          <div className="rounded-xl border border-border bg-secondary/20 p-4 space-y-3 text-sm">
-                            <div>
-                              <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1">Main damage driver</div>
-                              <div className="text-foreground/85">{r.main_damage_driver || '—'}</div>
-                            </div>
-                            <div>
-                              <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1">Buffer</div>
-                              <div className="text-foreground/85">{r.buffer_contributor || '—'}</div>
-                            </div>
-                            <div>
-                              <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1">Sensitivity</div>
-                              <div className="text-foreground/85">{r.most_sensitive_class || '—'}</div>
-                            </div>
-                            {r.disclosure_text && (
-                              <div className="pt-2 border-t border-border text-[11px] text-muted-foreground">
-                                {r.disclosure_text}
+                                        </div>
+                                      );
+                                    })}
+                                </div>
+                                <div className="flex items-center gap-3 text-[11px] text-muted-foreground mt-4 pt-3 border-t border-border">
+                                  <span className="inline-flex items-center gap-1.5">
+                                    <span className="w-3 h-1.5 rounded-sm bg-foreground/80" />Current
+                                  </span>
+                                  <span className="inline-flex items-center gap-1.5">
+                                    <span className="w-3 h-1.5 rounded-sm bg-foreground/30" />Under stress
+                                  </span>
+                                </div>
                               </div>
-                            )}
-                            <button
-                              onClick={() => openDrawer('drawdown')}
-                              className="block text-[11px] text-foreground/80 hover:text-foreground"
-                            >
-                              View methodology ›
-                            </button>
-                          </div>
-                        </div>
+
+                              {/* Sidebar: damage / buffer / sensitivity / source */}
+                              <div className="rounded-xl border border-border bg-secondary/20 p-4 space-y-3 text-sm">
+                                <div>
+                                  <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1">Main damage driver</div>
+                                  <div className="text-foreground/85">{r.main_damage_driver || '—'}</div>
+                                </div>
+                                <div>
+                                  <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1">Buffer</div>
+                                  <div className="text-foreground/85">{r.buffer_contributor || '—'}</div>
+                                </div>
+                                <div>
+                                  <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1">Sensitivity</div>
+                                  <div className="text-foreground/85">{r.most_sensitive_class || '—'}</div>
+                                </div>
+                                {r.disclosure_text && (
+                                  <div className="pt-2 border-t border-border text-[11px] text-muted-foreground">
+                                    {r.disclosure_text}
+                                  </div>
+                                )}
+                                <button
+                                  onClick={() => openDrawer('drawdown')}
+                                  className="block text-[11px] text-foreground/80 hover:text-foreground"
+                                >
+                                  View methodology ›
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </div>
                     </motion.div>
                   )}
